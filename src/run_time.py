@@ -120,6 +120,8 @@ class CombinedModel:
 
         if namespace == 'train':
             for batch_idx in self.args.iter_per_epoch:
+
+                # todo: how to ensure the epoch traverse all combinations? re-use dataloader with sql aware?
                 # randomly sample one batch
                 sql_batch, data_batch = data_loader.sample_batch_sql_and_data()
 

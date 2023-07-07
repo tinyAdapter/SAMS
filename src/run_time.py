@@ -3,9 +3,9 @@ import model
 import time
 import utils
 from torch import optim
-from torch.utils.data import DataLoader
 from singleton import logger
 from model_utils import *
+from data_loader import SQLAwareDataset
 
 
 class CombinedModel:
@@ -49,7 +49,7 @@ class CombinedModel:
             dropout=self.args.dropout,
         )
 
-    def trian(self, train_loader: DataLoader, val_loader: DataLoader, test_loader: DataLoader, use_test_acc=True):
+    def trian(self, train_loader: SQLAwareDataset, val_loader: SQLAwareDataset, test_loader: SQLAwareDataset, use_test_acc=True):
 
         start_time, best_valid_auc = time.time(), 0.
 
@@ -80,12 +80,18 @@ class CombinedModel:
             train_auc, train_loss = self.run(epoch, train_loader, opt_metric, optimizer=optimizer, namespace='train')
             scheduler.step()
 
+            # update val_loader's history
+            val_loader.sql_history = train_loader.sql_history
             valid_auc, valid_loss = self.run(epoch, val_loader, opt_metric, namespace='val')
 
             if use_test_acc:
+                test_loader.sql_history = train_loader.sql_history
                 test_auc, test_loss = self.run(epoch, test_loader, opt_metric, namespace='test')
             else:
                 test_auc = -1
+
+            # set to empty for the next epoch
+            train_loader.reset_sql_his()
 
             info_dic[epoch] = {
                 "train_auc": train_auc,
@@ -117,13 +123,13 @@ class CombinedModel:
                 # randomly sample one batch
                 sql_batch, data_batch = data_loader.sample_batch_sql_and_data()
 
-                sql_batch = sql_batch.to(self.args.device)
+                sql_batch_tensor = torch.tensor(sql_batch).to(self.args.device)
                 target = data_batch['y'].to(self.args.device)
                 data_batch['id'] = data_batch['id'].to(self.args.device)
                 data_batch['value'] = data_batch['value'].to(self.args.device)
 
                 # 1. get the arch_advisor B*L*K
-                arch_advisor = self.hyper_net(sql_batch)
+                arch_advisor = self.hyper_net(sql_batch_tensor)
                 assert arch_advisor.size() == (self.args.batch_size, self.args.moe_num_layers * self.args.K)
 
                 # reshape it to (B, L, K)
@@ -162,13 +168,13 @@ class CombinedModel:
                             range(0, len(sql_all), self.args.batch_size)]
 
             for batch_idx, (sql_batch, data_batch) in enumerate(mini_batches):
-                sql_batch = sql_batch.to(self.args.device)
+                sql_batch_tensor = torch.tensor(sql_batch).to(self.args.device)
                 target = data_batch['y'].to(self.args.device)
                 data_batch['id'] = data_batch['id'].to(self.args.device)
                 data_batch['value'] = data_batch['value'].to(self.args.device)
 
                 with torch.no_grad():
-                    arch_advisor = self.hyper_net(sql_batch)
+                    arch_advisor = self.hyper_net(sql_batch_tensor)
                     assert arch_advisor.size() == (self.args.batch_size, self.args.moe_num_layers * self.args.K)
                     # reshape it to (B, L, K)
                     arch_advisor = arch_advisor.reshape(self.args.batch_size, self.args.moe_num_layers, self.args.K)

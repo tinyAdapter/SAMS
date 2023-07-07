@@ -24,6 +24,10 @@ def arch_args(parser):
 
 
 def trainner_args(parser):
+
+    parser.add_argument('--max_filter_col', type=int, default=4,
+                        help='the number of columns to choose in select...where...')
+
     # MLP model config
     parser.add_argument('--nfeat', type=int, default=369,
                         help='the number of features, '

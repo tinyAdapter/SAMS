@@ -7,11 +7,13 @@ import os
 import numpy as np
 import sklearn.model_selection
 from scipy.io.arff import loadarff
+import itertools
+import random
 
 
 class LibsvmDataset(Dataset):
     """ Dataset loader for Libsvm data format """
-    def __init__(self, fname, nfields):
+    def __init__(self, fname, nfields, max_filter_col):
 
         def decode_libsvm(line):
             columns = line.split(' ')
@@ -46,10 +48,99 @@ class LibsvmDataset(Dataset):
                     pbar.update(1)
         print(f'# {self.nsamples} data samples loaded...')
 
+        # generate the columsn statics
+        self.max_columns = min(self.feat_id.shape[1], max_filter_col)
+
+        # Convert the tensor to a list of lists, where each inner list contains the unique values from each column
+        self.col_cardinalities = [self.feat_id[:, i].unique().tolist() for i in range(self.feat_id.shape[1])]
+
+        # this is used in infernece, as infernece must testd on the trained sql.
+        self.sql_history = set()
+
+    def sample_all_data_by_sql(self):
+        """
+        This is for infernece,
+        :param sql_his: sql history at training stage.
+        :return:
+        """
+        all_sql = []
+        all_data = []
+
+        for sql in self.sql_history:
+            data_dic = self.select_row_with_sql(sql)
+            # if the sql don;t have matched data, continue to next.
+            if data_dic["id"] is None:
+                continue
+            # add to all_data.
+            all_sql.append(sql)
+            all_data.append(data_dic)
+
+        return all_sql, all_data
+
+    def sample_batch_sql_and_data(self, batch_size):
+        """
+        Sample a batch of sql and corresponding data.
+        :param batch_size:
+        :return:
+        """
+        sql_batch = []
+        data_batch = []
+        while True:
+            # sample
+            sql = self.sample_sql()
+            data_dic = self.select_row_with_sql(sql)
+
+            # if the sql don;t have matched data, continue to next.
+            if data_dic["id"] is None:
+                continue
+
+            # add to batch data
+            sql_batch.append(sql)
+            data_batch.append(data_dic)
+
+            # add to his for inference testing
+            self.sql_history.add(sql)
+            if len(sql_batch) >= batch_size:
+                break
+
+        return sql_batch, data_batch
+
+    def sample_sql(self) -> tuple:
+        # 1. firstly randomly pick number of the columns
+        ncol = random.randint(1, self.max_columns)
+        # 2. second, randomly find one value per column to form a sql.
+        random_columns = random.sample(self.col_cardinalities, ncol)
+        random_sql = tuple(random.choice(col) for col in random_columns)
+
+        return random_sql
+
+    def select_row_with_sql(self, random_sql: tuple) -> dict:
+        cols_to_check = torch.tensor(random_sql)
+        matching_rows = (self.feat_id[:, :len(cols_to_check)] == cols_to_check).all(dim=1)
+
+        # Check if there is at least one match
+        if matching_rows.any():
+            # Get the index of the first matching row
+            first_match_index = matching_rows.nonzero(as_tuple=True)[0][0]
+
+            selected_row_feat_id = self.feat_id[first_match_index, :].squeeze()
+            selected_row_feat_value = self.feat_value[first_match_index, :].squeeze()
+            selected_row_y = self.y[first_match_index, :].squeeze()
+        else:
+            selected_row_feat_id = None
+            selected_row_feat_value = None
+            selected_row_y = None
+        return {'id': selected_row_feat_id, 'value': selected_row_feat_value, 'y': selected_row_y}
+
+    def reset_sql_his(self):
+        self.sql_history.clear()
+
     def __len__(self):
         return self.nsamples
 
     def __getitem__(self, idx):
+
+        # two levels of
         return {'id': self.feat_id[idx],
                 'value': self.feat_value[idx],
                 'y': self.y[idx]}

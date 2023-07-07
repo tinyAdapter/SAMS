@@ -44,12 +44,9 @@ def trainner_args(parser):
     parser.add_argument('--batch_size', type=int, default=128, help='batch size')
     parser.add_argument('--lr', type=float, default=0.002, help="learning reate")
     parser.add_argument('--patience', type=int, default=1, help='number of epochs for stopping training')
-    # parser.add_argument('--eval_freq', type=int, default=10000, help='max number of batches to train per epoch')
 
     parser.add_argument('--iter_per_epoch', type=int, default=2000,
-                        help="None, "
-                             "200 for frappe, uci_diabetes, "
-                             "2000 for criteo")
+                        help="200 for frappe, uci_diabetes, 2000 for criteo")
 
     # MLP train config
     parser.add_argument('--report_freq', type=int, default=30, help='report frequency')
@@ -93,9 +90,12 @@ if __name__ == '__main__':
     args = parse_arguments()
 
     # init data loader
-    train_loader, val_loader, test_loader, sql_combinations = data.libsvm_dataloader(args=args)
+    train_loader, val_loader, test_loader, total_columns, col_cardinality_sum = data.libsvm_dataloader(args=args)
     # init model
-    model = runtime.CombinedModel(args, sql_combinations)
+    model = runtime.CombinedModel(
+        args=args,
+        total_columns=total_columns,
+        col_cardinality_sum=col_cardinality_sum)
 
     model.trian(train_loader, val_loader, test_loader)
 

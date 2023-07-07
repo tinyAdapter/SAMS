@@ -55,6 +55,23 @@ class LibsvmDataset(Dataset):
                 'y': self.y[idx]}
 
 
+def data_set_sql_analyzier():
+    """
+    Colculate the number of unique value of each column
+    :return:
+    """
+
+
+
+
+
+
+
+
+
+
+
+
 def libsvm_dataloader(args):
     data_dir = args.data_dir + args.dataset
     train_file = glob.glob("%s/tr*libsvm" % data_dir)[0]
@@ -68,8 +85,8 @@ def libsvm_dataloader(args):
                             batch_size=args.batch_size, shuffle=False,
                             num_workers=args.workers, pin_memory=True)
     test_loader = DataLoader(LibsvmDataset(test_file, args.nfield),
-                            batch_size=args.batch_size, shuffle=False,
-                            num_workers=args.workers, pin_memory=True)
+                             batch_size=args.batch_size, shuffle=False,
+                             num_workers=args.workers, pin_memory=True)
 
     return train_loader, val_loader, test_loader, -1
 

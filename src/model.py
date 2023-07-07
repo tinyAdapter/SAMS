@@ -9,7 +9,7 @@ class Embedding(nn.Module):
     def __init__(self, nfeat, nemb):
         """
         :param nfeat: number of features,
-            for sql, it == all combinations of filter condiation
+            for sql, it == sum of unique value + 1 of each column
             for dataset, it == pre-defined features.
         :param nemb: hyperparameter.
         """
@@ -19,11 +19,11 @@ class Embedding(nn.Module):
 
     def forward_sql(self, x):
         """
-         :param x:   {x: LongTensor B*1}
+         :param x:   {x: LongTensor B*F}
          :return:    embeddings B*F*E
          """
-        emb = self.embedding(x)  # B*1*E
-        return emb  # B*1*E
+        emb = self.embedding(x)  # B*F*E
+        return emb               # B*F*E
 
     def forward_moe(self, x):
         """
@@ -175,7 +175,7 @@ class HyperNet(torch.nn.Module):
         """
         super().__init__()
         noutput = L*K
-        self.embedding = Embedding(nfeat, nemb)
+        self.embedding = SQLEmbedding(nfeat, nemb)
         self.mlp_ninput = nfield*nemb
         self.mlp = MLP(self.mlp_ninput, nlayers, hid_layer_len, dropout, noutput)
 
@@ -184,7 +184,7 @@ class HyperNet(torch.nn.Module):
         :param x:   {'id': LongTensor B*F, 'value': FloatTensor B*F}
         :return:    y of size B, Regression and Classification (+sigmoid)
         """
-        x_emb = self.forward_sql(x)                           # B*F*E
+        x_emb = self.embedding.forward_sql(x)               # B*F*E
         y = self.mlp(x_emb.view(-1, self.mlp_ninput))       # B*1
         return y.squeeze(1)
 

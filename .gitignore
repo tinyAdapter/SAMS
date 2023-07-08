@@ -1,4 +1,6 @@
 
 .idea/*
 .DS_Store
-./sams_logs
+sams_logs/
+src/__pycache__/
+third_party/utils/__pycache__/

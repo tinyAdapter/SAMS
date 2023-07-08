@@ -147,16 +147,17 @@ class CombinedModel:
 
         if namespace == 'train':
 
+            # for batch_idx in range(self.args.iter_per_epoch):
+            # todo: how to ensure the epoch traverse all combinations? re-use dataloader with sql aware?
+            # randomly sample one batch
+            # sql_batch, data_batch = data_loader.sample_batch_sql_and_data(self.args.batch_size)
+            # sql_batch_tensor = torch.tensor(sql_batch).to(self.args.device)
+
             for batch_idx, data_batch in enumerate(data_loader):
                 if namespace == 'train' \
                         and self.args.iter_per_epoch is not None \
                         and batch_idx >= self.args.iter_per_epoch:
                     break
-            # for batch_idx in range(self.args.iter_per_epoch):
-                # todo: how to ensure the epoch traverse all combinations? re-use dataloader with sql aware?
-                # randomly sample one batch
-                # sql_batch, data_batch = data_loader.sample_batch_sql_and_data(self.args.batch_size)
-                # sql_batch_tensor = torch.tensor(sql_batch).to(self.args.device)
                 sql_batch_tensor = data_batch["sql"].to(self.args.device)
                 target = data_batch['y'].to(self.args.device)
                 data_batch['id'] = data_batch['id'].to(self.args.device)

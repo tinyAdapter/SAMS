@@ -8,7 +8,7 @@ import traceback
 def arch_args(parser):
     # MOE-NET
     parser.add_argument('--K', default=4, type=int, help='# duplication layer of each MOElayer')
-    parser.add_argument('--moe_num_layers', default=4, type=int, help='# hidden MOElayers of MOENet')
+    parser.add_argument('--moe_num_layers', default=5, type=int, help='# hidden MOElayers of MOENet')
     parser.add_argument('--moe_hid_layer_len', default=10, type=int, help='hidden layer length in MoeLayer')
 
     # hyperNet
@@ -24,6 +24,9 @@ def arch_args(parser):
 
 
 def trainner_args(parser):
+
+    parser.add_argument('--alpha', default=0.1, type=float, help='entmax alpha to control sparsity')
+
     parser.add_argument('--max_filter_col', type=int, default=4,
                         help='the number of columns to choose in select...where...')
 

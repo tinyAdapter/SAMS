@@ -1,12 +1,11 @@
-
 import calendar
 import os
 import time
 import argparse
 import traceback
 
-def arch_args(parser):
 
+def arch_args(parser):
     # MOE-NET
     parser.add_argument('--K', default=4, type=int, help='# duplication layer of each MOElayer')
     parser.add_argument('--moe_num_layers', default=4, type=int, help='# hidden MOElayers of MOENet')
@@ -25,7 +24,6 @@ def arch_args(parser):
 
 
 def trainner_args(parser):
-
     parser.add_argument('--max_filter_col', type=int, default=4,
                         help='the number of columns to choose in select...where...')
 
@@ -44,7 +42,7 @@ def trainner_args(parser):
     parser.add_argument('--epoch', type=int, default=3,
                         help='number of maximum epochs, '
                              'frappe: 20, uci_diabetes: 40, criteo: 10'
-                             )
+                        )
 
     parser.add_argument('--batch_size', type=int, default=128, help='batch size')
     parser.add_argument('--lr', type=float, default=0.002, help="learning reate")
@@ -66,8 +64,7 @@ def data_set_config(parser):
                              'criteo, '
                              'uci_diabetes')
 
-    parser.add_argument('--num_labels', type=int, default=1,
-                        help='[2, 2, 2]')
+    parser.add_argument('--num_labels', type=int, default=1, help='[2, 2, 2]')
 
 
 def parse_arguments():
@@ -99,10 +96,11 @@ if __name__ == '__main__':
 
     try:
         # init data loader
-        train_loader, val_loader, test_loader = data.sql_dataloader(args=args)
+        train_loader = data.sql_attached_dataloader(args=args)
+        val_loader, test_loader = data.sql_dataloader(args=args)
 
         # col_cardinality_sum + 1 for total feature ids.
-        col_cardinality_sum = max(ele for sublist in train_loader.col_cardinalities for ele in sublist) + 1
+        col_cardinality_sum = max(ele for sublist in train_loader.dataset.col_cardinalities for ele in sublist) + 1
         # init model
         model = runtime.CombinedModel(
             args=args,

@@ -1,4 +1,3 @@
-
 import model
 import time
 import third_party.utils.func_utils as utils
@@ -6,6 +5,7 @@ from torch import optim
 from singleton import logger
 from third_party.utils.model_utils import *
 from data_loader import SQLAwareDataset
+from torch.utils.data import Dataset, DataLoader
 
 
 class CombinedModel:
@@ -48,7 +48,7 @@ class CombinedModel:
         )
 
     def trian(self,
-              train_loader: SQLAwareDataset, val_loader: SQLAwareDataset, test_loader: SQLAwareDataset,
+              train_loader: DataLoader, val_loader: SQLAwareDataset, test_loader: SQLAwareDataset,
               use_test_acc=True):
         """
         :param train_loader: data loaer
@@ -91,18 +91,18 @@ class CombinedModel:
 
             # 2. valid with valid
             # update val_loader's history
-            val_loader.sql_history = train_loader.sql_history
+            val_loader.sql_history = train_loader.dataset.sql_history
             valid_auc, valid_loss = self.run(epoch, val_loader, opt_metric, namespace='val')
 
             # 3. valid with test
             if use_test_acc:
-                test_loader.sql_history = train_loader.sql_history
+                test_loader.sql_history = train_loader.dataset.sql_history
                 test_auc, test_loss = self.run(epoch, test_loader, opt_metric, namespace='test')
             else:
                 test_auc = -1
 
             # set to empty for the next epoch
-            train_loader.reset_sql_his()
+            train_loader.dataset.reset_sql_his()
 
             info_dic[epoch] = {
                 "train_auc": train_auc,
@@ -139,13 +139,18 @@ class CombinedModel:
         loss_avg, auc_avg = utils.AvgrageMeter(), utils.AvgrageMeter()
 
         if namespace == 'train':
-            for batch_idx in range(self.args.iter_per_epoch):
 
+            for batch_idx, data_batch in enumerate(data_loader):
+                if namespace == 'train' \
+                        and self.args.iter_per_epoch is not None \
+                        and batch_idx >= self.args.iter_per_epoch:
+                    break
+            # for batch_idx in range(self.args.iter_per_epoch):
                 # todo: how to ensure the epoch traverse all combinations? re-use dataloader with sql aware?
                 # randomly sample one batch
-                sql_batch, data_batch = data_loader.sample_batch_sql_and_data(self.args.batch_size)
-
-                sql_batch_tensor = torch.tensor(sql_batch).to(self.args.device)
+                # sql_batch, data_batch = data_loader.sample_batch_sql_and_data(self.args.batch_size)
+                # sql_batch_tensor = torch.tensor(sql_batch).to(self.args.device)
+                sql_batch_tensor = data_batch["sql"].to(self.args.device)
                 target = data_batch['y'].to(self.args.device)
                 data_batch['id'] = data_batch['id'].to(self.args.device)
                 data_batch['value'] = data_batch['value'].to(self.args.device)
@@ -218,8 +223,3 @@ class CombinedModel:
         logger.info(f'{namespace}\tTime {utils.timeSince(s=time_avg.sum):>12s} '
                     f'AUC {auc_avg.avg:8.4f} Loss {loss_avg.avg:8.4f}')
         return auc_avg.avg, loss_avg.avg
-
-
-
-
-

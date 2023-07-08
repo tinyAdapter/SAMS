@@ -105,6 +105,7 @@ class MOELayer(nn.Module):
         :param x: embedding output, B*ninput
         :return: FloatTensor B*nouput
         """
+        # todo: opt, skip the i-th layer computation when weight_i = 0
         # 1. generate the output for each layer
         output = list()
         for layer in self.layer_group:

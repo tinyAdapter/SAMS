@@ -1,5 +1,6 @@
 
 import torch.nn as nn
+from typing import Dict
 import torch
 
 
@@ -19,22 +20,22 @@ class Embedding(nn.Module):
 
     def forward_sql(self, x):
         """
-         :param x:   {x: LongTensor B*F}
-         :return:    embeddings B*F*E
+         :param x:   {x: LongTensor B*nfield}
+         :return:    embeddings     B*nfield*E
          """
-        emb = self.embedding(x)  # B*F*E
-        return emb               # B*F*E
+        return self.embedding(x)  # B*F*E
 
     def forward_moe(self, x):
         """
-        B: batch size, F: fileds, E: nemb
-        :param x:   {'id': LongTensor B*F, 'value': FloatTensor B*F}
-        :return:    embeddings B*F*E
+        :param x:
+                {'id': LongTensor B*nfield,
+                 'value': FloatTensor B*nfield}
+        :return:    embeddings B*nfield*nemb
         """
         # convert feature to embedding.
-        emb = self.embedding(x['id'])                           # B*F*E
+        emb = self.embedding(x['id'])                           # B*nfield*nemb
         # scale by value
-        output = emb * x['value'].unsqueeze(2)                  # B*F*E
+        output = emb * x['value'].unsqueeze(2)                  # B*nfield*nemb
         return output
 
 
@@ -73,6 +74,7 @@ class MLP(nn.Module):
 # MOELayer
 class MOELayer(nn.Module):
 
+    # shared across MOElayer instances.
     duplayers = 0
 
     def __init__(self, ninput, nhid, dropout):
@@ -112,21 +114,24 @@ class MOELayer(nn.Module):
         group_layer_output = torch.stack(output, dim=1)
 
         # 2. weighted sum
-        weighted_output = torch.bmm(self.arch_weight, group_layer_output)     # B * nhid
+        weighted_output = torch.bmm(self.arch_weight, group_layer_output)  # B * nhid
         return weighted_output
 
 
 # MOEMLP
 class MOEMLP(nn.Module):
 
-    def __init__(self, ninput, nlayers, nhid, dropout, noutput=1):
+    def __init__(self, ninput, nlayers, nhid, dropout, K, noutput=1):
         """
         :param ninput: input dimension
         :param nlayers: # hidden MOELayer
         :param nhid: output dimension of hidden MOELayer
         :param dropout: dropout rate
+        :param K: # duplicat number
         :param noutput: output dimension of the MOENet
         """
+        # set the class variable.
+        MOELayer.duplayers = K
         super().__init__()
         # build MOELayer
         self.layers = list()
@@ -147,7 +152,7 @@ class MOEMLP(nn.Module):
         assert arch_weights.shape[1] == len(self.layers)
 
         # update each moe layer's weight
-        for index in range(arch_weights.shape[1]):  # Iterating over L, moe_num_layers
+        for index in range(arch_weights.shape[1]):                        # Iterating over L, moe_num_layers
             self.layers[index].arch_weight = x[:, index, :].unsqueeze(1)  # sub_tensor has shape (B, 1, K)
 
         # then compute
@@ -164,28 +169,30 @@ class HyperNet(torch.nn.Module):
                  dropout: float,
                  L: int, K: int):
         """
-        :param nfield: for SQL combination, each is one feature, so it's 1
-        :param nfeat: number of filter combinations. 'select...where...'
-        :param nemb: hyperparams, 10
-        :param nlayers: hyperparams 3
-        :param hid_layer_len: hyperparams, hidden layer length
-        :param dropout: hyperparams 0
-        :param L: number of layers in MOENet
-        :param K: number of replication for each MOELayer
+        :param nfield: # columns
+        :param nfeat: # filter combinations. 'select...where...'
+                      opt: sum of cardinality + 1 of each column
+        :param nemb: hyperm, embedding size 10
+        :param nlayers: hyperm 3
+        :param hid_layer_len: hyperm, hidden layer length
+        :param dropout: hyperm 0
+        :param L: # layers in MOENet
+        :param K: # replication for each MOELayer
         """
         super().__init__()
+        # L*K used for MOENET
         noutput = L*K
-        self.embedding = SQLEmbedding(nfeat, nemb)
-        self.mlp_ninput = nfield*nemb
+        self.embedding = Embedding(nfeat, nemb)
+        self.mlp_ninput = nfield * nemb
         self.mlp = MLP(self.mlp_ninput, nlayers, hid_layer_len, dropout, noutput)
 
-    def forward(self, x):
+    def forward(self, x: torch.tensor):
         """
-        :param x:   {'id': LongTensor B*F, 'value': FloatTensor B*F}
-        :return:    y of size B, Regression and Classification (+sigmoid)
+        :param x:   LongTensor B*nfield
+        :return:    B*L*K
         """
-        x_emb = self.embedding.forward_sql(x)               # B*F*E
-        y = self.mlp(x_emb.view(-1, self.mlp_ninput))       # B*1
+        x_emb = self.embedding.forward_sql(x)          # B*nfield*nemb
+        y = self.mlp(x_emb.view(-1, self.mlp_ninput))  # B*L*K
         return y.squeeze(1)
 
 
@@ -196,32 +203,35 @@ class MOENet(torch.nn.Module):
     def __init__(self,
                  nfield: int, nfeat: int,
                  nemb: int, moe_num_layers: int, moe_hid_layer_len: int,
-                 dropout: float):
+                 dropout: float,
+                 K: int
+                 ):
         """
-        :param nfield: # used column of the dataset
+        :param nfield: # columns
         :param nfeat: # feature of the dataset.
-        :param nemb: hyperparams, embedding size 10
-        :param moe_num_layers: hyperparams: # hidden MOElayers of MOENet
-        :param moe_hid_layer_len: hyperparams: hidden layer length in MoeLayer
+        :param nemb: hyperm, embedding size 10
+        :param moe_num_layers: hyperm: # hidden MOElayers of MOENet
+        :param moe_hid_layer_len: hyperm: hidden layer length in MoeLayer
         :param dropout: hyperparams 0
+        :param K: # duplicat number
         """
         super().__init__()
         self.embedding = Embedding(nfeat, nemb)
         self.moe_mlp_ninput = nfield * nemb
-        self.moe_mlp = MOEMLP(self.moe_mlp_ninput, moe_num_layers, moe_hid_layer_len, dropout)
+        self.moe_mlp = MOEMLP(self.moe_mlp_ninput, moe_num_layers, moe_hid_layer_len, K, dropout)
 
-    def forward(self, x, arch_weights: torch.Tensor):
+    def forward(self, x: Dict[str, torch.Tensor], arch_weights: torch.Tensor):
         """
 
-        :param x: {'id': LongTensor B*F, 'value': FloatTensor B*F}
+        :param x: {'id': LongTensor B*nfield, 'value': FloatTensor B*nfield}
         :param arch_weights: B*L*K
         :return: y of size B, Regression and Classification (+sigmoid)
         """
 
-        x_emb = self.embedding.forward_moe(x)    # B*F*E
+        x_emb = self.embedding.forward_moe(x)     # B*nfield*nemb
         y = self.moe_mlp.forward(
-            x=x_emb.view(-1, self.mlp_ninput),   # B*1
+            x=x_emb.view(-1, self.mlp_ninput),    # B*nfield*nemb
             arch_weights=arch_weights,            # B*1*K
-        )
+        )   # B*1
         return y.squeeze(1)
 

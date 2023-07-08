@@ -46,8 +46,19 @@ class SQLAwareDataset(Dataset):
         # generate the columsn statics
         self.max_columns = min(self.feat_id.shape[1], max_filter_col)
 
+        # number of columns
+        self.ncols = self.feat_id.shape[1]
+
         # Convert the tensor to a list of lists, where each inner list contains the unique values from each column
-        self.col_cardinalities = [self.feat_id[:, i].unique().tolist() for i in range(self.feat_id.shape[1])]
+        self.col_cardinalities = [self.feat_id[:, i].unique().tolist() for i in range(self.ncols)]
+
+        # add pedding feature_id to each of the columns unique value.
+        self.padding_feature_id = []
+        max_value = max(value for sublist in self.col_cardinalities for value in sublist)
+        for i, sublist in enumerate(self.col_cardinalities):
+            # in place append
+            sublist.append(max_value + 1 + i)
+            self.padding_feature_id.append(max_value + 1 + i)
 
         # this is used in infernece, as infernece must testd on the trained sql.
         self.sql_history = set()
@@ -103,33 +114,48 @@ class SQLAwareDataset(Dataset):
     def sample_sql(self) -> tuple:
         # 1. firstly randomly pick number of the columns
         ncol = random.randint(1, self.max_columns)
-        # initialize all columns to cardinalities + 1 (index)
-        random_sql = [len(col) for col in self.col_cardinalities]
+        # initialize all columns to last feature in each list, which is the pedding feature
+        random_sql = [col[-1] for col in self.col_cardinalities]
         # 2. second, randomly find one value per column to form a sql.
         random_columns_idx = random.sample(range(self.max_columns), ncol)
         for idx in random_columns_idx:
-            random_sql[idx] = random.choice(self.col_cardinalities[idx])
+            # only sample from the unique feature other than pedding feature.
+            random_sql[idx] = random.choice(self.col_cardinalities[:-1][idx])
         return tuple(random_sql)
 
     def select_row_with_sql(self, random_sql: tuple) -> dict:
         cols_to_check = torch.tensor(random_sql)
-        matching_rows = (self.feat_id[:, :len(cols_to_check)] == cols_to_check).all(dim=1)
+        conditions = [
+            self.feat_id[:, i] == cols_to_check[i]
+            if cols_to_check[i] not in self.padding_feature_id
+            else torch.ones(self.feat_id.shape[0], dtype=torch.bool)
+            for i in range(self.feat_id.shape[1])
+        ]
 
-        # Check if there is at least one match
+        matching_rows = torch.stack(conditions).all(dim=0)
+
         if matching_rows.any():
-            # Get the index of the first matching row
-            first_match_index = matching_rows.nonzero(as_tuple=True)[0][0]
+            # Get the indices of all matching rows
+            all_matching_indices = matching_rows.nonzero(as_tuple=True)[0]
 
-            selected_row_feat_id = self.feat_id[first_match_index, :].squeeze()
-            selected_row_feat_value = self.feat_value[first_match_index, :].squeeze()
-            selected_row_y = self.y[first_match_index, :].squeeze()
+            # Randomly select one row
+            selected_index = random.choice(all_matching_indices.tolist())
+
+            selected_row_feat_id = self.feat_id[selected_index, :].squeeze()
+            selected_row_feat_value = self.feat_value[selected_index, :].squeeze()
+            selected_row_y = self.y[selected_index, :].squeeze()
         else:
             selected_row_feat_id = None
             selected_row_feat_value = None
             selected_row_y = None
+
         return {'id': selected_row_feat_id, 'value': selected_row_feat_value, 'y': selected_row_y}
 
     def reset_sql_his(self):
+        """
+        Called after each epoch. such that infernece can use the same sql set.
+        :return:
+        """
         self.sql_history.clear()
 
 
@@ -143,4 +169,4 @@ def sql_dataloader(args):
     val_loader = SQLAwareDataset(val_file, args.nfield, args.max_filter_col)
     test_loader = SQLAwareDataset(test_file, args.nfield, args.max_filter_col)
 
-    return train_loader, val_loader, test_loader, -1
+    return train_loader, val_loader, test_loader

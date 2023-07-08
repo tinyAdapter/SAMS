@@ -10,10 +10,9 @@ from data_loader import SQLAwareDataset
 
 class CombinedModel:
 
-    def __init__(self, args, total_columns: int, col_cardinality_sum: int):
+    def __init__(self, args, col_cardinality_sum: int):
         """
         :param args: all parameters
-        :param total_columns:  # of columns
         """
         self.args = args
 
@@ -21,16 +20,14 @@ class CombinedModel:
         self.hyper_net = None
         self.moe_net = None
 
-        # total number of columns, each column is one feature field.
-        self.total_columns = total_columns
-        # sume of cardinality  +1 of each column
+        # sume of cardinality + 1 of each column
         self.col_cardinality_sum = col_cardinality_sum
 
         self.construct_model()
 
     def construct_model(self):
         self.hyper_net = model.HyperNet(
-            nfield=self.total_columns,
+            nfield=self.args.nfield,
             nfeat=self.col_cardinality_sum,
             nemb=self.args.sql_nemb,
             nlayers=self.args.num_layers,
@@ -47,20 +44,30 @@ class CombinedModel:
             moe_num_layers=self.args.moe_num_layers,
             moe_hid_layer_len=self.args.moe_hid_layer_len,
             dropout=self.args.dropout,
+            K=self.args.K,
         )
 
-    def trian(self, train_loader: SQLAwareDataset, val_loader: SQLAwareDataset, test_loader: SQLAwareDataset, use_test_acc=True):
+    def trian(self,
+              train_loader: SQLAwareDataset, val_loader: SQLAwareDataset, test_loader: SQLAwareDataset,
+              use_test_acc=True):
+        """
+        :param train_loader: data loaer
+        :param val_loader: data loaer
+        :param test_loader: data loaer
+        :param use_test_acc: if use test dataset to valid during trianing.
+        :return:
+        """
 
         start_time, best_valid_auc = time.time(), 0.
 
         # define the loss function, for two class classification
         opt_metric = nn.BCEWithLogitsLoss(reduction='mean').to(self.args.device)
 
-        # define the parameter
+        # define the parameter, which includes both networks
         params = list(self.hyper_net.parameters()) + list(self.moe_net.parameters())
         optimizer = torch.optim.Adam(params, lr=self.args.lr)
 
-        # scheduler to update the learning learning rate
+        # scheduler to update the learning rate
         scheduler = optim.lr_scheduler.CosineAnnealingLR(
             optimizer,
             T_max=self.args.epoch_num,  # Maximum number of iterations.
@@ -70,6 +77,7 @@ class CombinedModel:
         for p in params:
             p.register_hook(lambda grad: torch.clamp(grad, -1., 1.))
 
+        # records running info
         info_dic = {}
         valid_auc = -1
         test_auc = -1
@@ -77,13 +85,16 @@ class CombinedModel:
         for epoch in range(self.args.epoch_num):
             logger.info(f'Epoch [{epoch:3d}/{self.args.epoch_num:3d}]')
 
+            # 1. train
             train_auc, train_loss = self.run(epoch, train_loader, opt_metric, optimizer=optimizer, namespace='train')
             scheduler.step()
 
+            # 2. valid with valid
             # update val_loader's history
             val_loader.sql_history = train_loader.sql_history
             valid_auc, valid_loss = self.run(epoch, val_loader, opt_metric, namespace='val')
 
+            # 3. valid with test
             if use_test_acc:
                 test_loader.sql_history = train_loader.sql_history
                 test_auc, test_loss = self.run(epoch, test_loader, opt_metric, namespace='test')
@@ -108,6 +119,15 @@ class CombinedModel:
 
     #  train one epoch of train/val/test
     def run(self, epoch, data_loader, opt_metric, optimizer=None, namespace='train'):
+        """
+        :param epoch:
+        :param data_loader:
+        :param opt_metric: the loss function
+        :param optimizer:
+        :param namespace: train | valid | test
+        :return:
+        """
+
         if optimizer:
             self.hyper_net.train()
             self.moe_net.train()

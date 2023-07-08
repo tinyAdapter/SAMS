@@ -41,7 +41,7 @@ def trainner_args(parser):
                              'uci_diabetes: 43,'
                              'criteo: 39')
 
-    parser.add_argument('--epoch', type=int, default=40,
+    parser.add_argument('--epoch', type=int, default=3,
                         help='number of maximum epochs, '
                              'frappe: 20, uci_diabetes: 40, criteo: 10'
                              )

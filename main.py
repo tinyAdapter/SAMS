@@ -94,11 +94,12 @@ if __name__ == '__main__':
     args = parse_arguments()
 
     # init data loader
-    train_loader, val_loader, test_loader, total_columns, col_cardinality_sum = data.libsvm_dataloader(args=args)
+    train_loader, val_loader, test_loader = data.sql_dataloader(args=args)
+
     # init model
+    col_cardinality_sum = sum(len(sublist) for sublist in train_loader.col_cardinalities)
     model = runtime.CombinedModel(
         args=args,
-        total_columns=total_columns,
         col_cardinality_sum=col_cardinality_sum)
 
     model.trian(train_loader, val_loader, test_loader)

@@ -1,10 +1,10 @@
 
 import model
 import time
-import utils
+import third_party.utils.func_utils as utils
 from torch import optim
 from singleton import logger
-from model_utils import *
+from third_party.utils.model_utils import *
 from data_loader import SQLAwareDataset
 
 

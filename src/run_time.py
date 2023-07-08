@@ -70,7 +70,7 @@ class CombinedModel:
         # scheduler to update the learning rate
         scheduler = optim.lr_scheduler.CosineAnnealingLR(
             optimizer,
-            T_max=self.args.epoch_num,  # Maximum number of iterations.
+            T_max=self.args.epoch,  # Maximum number of iterations.
             eta_min=1e-4)  # Minimum learning rate.
 
         # gradient clipping, set the gradient value to be -1 - 1 to prevent exploding gradients
@@ -82,8 +82,8 @@ class CombinedModel:
         valid_auc = -1
         test_auc = -1
         # train for epoches.
-        for epoch in range(self.args.epoch_num):
-            logger.info(f'Epoch [{epoch:3d}/{self.args.epoch_num:3d}]')
+        for epoch in range(self.args.epoch):
+            logger.info(f'Epoch [{epoch:3d}/{self.args.epoch:3d}]')
 
             # 1. train
             train_auc, train_loss = self.run(epoch, train_loader, opt_metric, optimizer=optimizer, namespace='train')
@@ -139,11 +139,11 @@ class CombinedModel:
         loss_avg, auc_avg = utils.AvgrageMeter(), utils.AvgrageMeter()
 
         if namespace == 'train':
-            for batch_idx in self.args.iter_per_epoch:
+            for batch_idx in range(self.args.iter_per_epoch):
 
                 # todo: how to ensure the epoch traverse all combinations? re-use dataloader with sql aware?
                 # randomly sample one batch
-                sql_batch, data_batch = data_loader.sample_batch_sql_and_data()
+                sql_batch, data_batch = data_loader.sample_batch_sql_and_data(self.args.batch_size)
 
                 sql_batch_tensor = torch.tensor(sql_batch).to(self.args.device)
                 target = data_batch['y'].to(self.args.device)
@@ -159,10 +159,10 @@ class CombinedModel:
 
                 # todo: conduct sparse softmax
                 arch_advisor = arch_advisor
-                if self.args.alpha == 1.:
-                    self.sparsemax = nn.Softmax(dim=-1)
-                else:
-                    self.sparsemax = EntmaxBisect(self.args.alpha, dim=-1)
+                # if self.args.alpha == 1.:
+                #     self.sparsemax = nn.Softmax(dim=-1)
+                # else:
+                #     self.sparsemax = EntmaxBisect(self.args.alpha, dim=-1)
 
                 # calculate y and loss
                 y = self.moe_net.forward(data_batch, arch_advisor)
@@ -180,14 +180,12 @@ class CombinedModel:
 
                 time_avg.update(time.time() - timestamp)
                 if batch_idx % self.args.report_freq == 0:
-                    logger.info(f'Epoch [{epoch:3d}/{self.args.epoch_num}][{batch_idx:3d}/{len(data_loader)}]\t'
+                    logger.info(f'Epoch [{epoch:3d}/{self.args.epoch}][{batch_idx:3d}/{len(data_loader)}]\t'
                                 f'{time_avg.val:.3f} ({time_avg.avg:.3f}) AUC {auc_avg.val:4f} ({auc_avg.avg:4f}) '
                                 f'Loss {loss_avg.val:8.4f} ({loss_avg.avg:8.4f})')
         else:
 
-            sql_all, data_all = data_loader.sample_all_data_by_sql()
-            mini_batches = [(sql_all[i:i + self.args.batch_size], data_all[i:i + self.args.batch_size]) for i in
-                            range(0, len(sql_all), self.args.batch_size)]
+            mini_batches = data_loader.sample_all_data_by_sql(self.args.batch_size)
 
             for batch_idx, (sql_batch, data_batch) in enumerate(mini_batches):
                 sql_batch_tensor = torch.tensor(sql_batch).to(self.args.device)
@@ -197,9 +195,11 @@ class CombinedModel:
 
                 with torch.no_grad():
                     arch_advisor = self.hyper_net(sql_batch_tensor)
-                    assert arch_advisor.size() == (self.args.batch_size, self.args.moe_num_layers * self.args.K)
-                    # reshape it to (B, L, K)
-                    arch_advisor = arch_advisor.reshape(self.args.batch_size, self.args.moe_num_layers, self.args.K)
+                    assert arch_advisor.size(1) == self.args.moe_num_layers * self.args.K, \
+                        f"{arch_advisor.size()} is not {self.args.batch_size, self.args.moe_num_layers * self.args.K}"
+
+                    # reshape it to (B, L, K), the last batch may less than self.args.batch_size -> arch_advisor.size(0)
+                    arch_advisor = arch_advisor.reshape(arch_advisor.size(0), self.args.moe_num_layers, self.args.K)
                     # calculate y and loss
                     y = self.moe_net.forward(data_batch, arch_advisor)
                     loss = opt_metric(y, target)
@@ -211,7 +211,7 @@ class CombinedModel:
 
                 time_avg.update(time.time() - timestamp)
                 if batch_idx % self.args.report_freq == 0:
-                    logger.info(f'Epoch [{epoch:3d}/{self.args.epoch_num}][{batch_idx:3d}/{len(data_loader)}]\t'
+                    logger.info(f'Epoch [{epoch:3d}/{self.args.epoch}][{batch_idx:3d}/{len(data_loader)}]\t'
                                 f'{time_avg.val:.3f} ({time_avg.avg:.3f}) AUC {auc_avg.val:4f} ({auc_avg.avg:4f}) '
                                 f'Loss {loss_avg.val:8.4f} ({loss_avg.avg:8.4f})')
 

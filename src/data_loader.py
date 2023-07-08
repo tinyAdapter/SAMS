@@ -1,6 +1,6 @@
 import glob
 from tqdm import tqdm
-
+from typing import List, Dict, Tuple
 import torch
 from torch.utils.data import Dataset
 import random
@@ -63,10 +63,10 @@ class SQLAwareDataset(Dataset):
         # this is used in infernece, as infernece must testd on the trained sql.
         self.sql_history = set()
 
-    def sample_all_data_by_sql(self):
+    def sample_all_data_by_sql(self, batch_size: int) -> List[Tuple]:
         """
         This is for infernece,
-        :param sql_his: sql history at training stage.
+        :param batch_size:
         :return:
         """
         all_sql = []
@@ -81,7 +81,15 @@ class SQLAwareDataset(Dataset):
             all_sql.append(sql)
             all_data.append(data_dic)
 
-        return all_sql, all_data
+        # generate multiople mini_batches
+        mini_batches = []
+        for i in range(0, len(all_sql), batch_size):
+
+            mini_batch_sql = all_sql[i:i + batch_size]
+            mini_batch_data = self.stack_batch_row_dict(all_data[i:i + batch_size])
+            mini_batches.append((mini_batch_sql, mini_batch_data))
+
+        return mini_batches
 
     def sample_batch_sql_and_data(self, batch_size: int):
         """
@@ -109,7 +117,7 @@ class SQLAwareDataset(Dataset):
             if len(sql_batch) >= batch_size:
                 break
 
-        return sql_batch, data_batch
+        return sql_batch, self.stack_batch_row_dict(data_batch)
 
     def sample_sql(self) -> tuple:
         # 1. firstly randomly pick number of the columns
@@ -143,7 +151,7 @@ class SQLAwareDataset(Dataset):
 
             selected_row_feat_id = self.feat_id[selected_index, :].squeeze()
             selected_row_feat_value = self.feat_value[selected_index, :].squeeze()
-            selected_row_y = self.y[selected_index, :].squeeze()
+            selected_row_y = self.y[selected_index].squeeze()
         else:
             selected_row_feat_id = None
             selected_row_feat_value = None
@@ -158,6 +166,28 @@ class SQLAwareDataset(Dataset):
         """
         self.sql_history.clear()
 
+    def stack_batch_row_dict(self, list_of_rows: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
+        # Initialize empty lists for each key
+        id_list = []
+        value_list = []
+        y_list = []
+
+        # Iterate over all dictionaries
+        for d in list_of_rows:
+            id_list.append(d['id'])
+            value_list.append(d['value'])
+            y_list.append(d['y'])
+
+        # Stack tensors along a new dimension
+        id_tensor = torch.stack(id_list, dim=0)
+        value_tensor = torch.stack(value_list, dim=0)
+        y_tensor = torch.stack(y_list, dim=0)
+
+        result_dict = {'id': id_tensor, 'value': value_tensor, 'y': y_tensor}
+        return result_dict
+
+    def __len__(self):
+        return self.nsamples
 
 def sql_dataloader(args):
     data_dir = args.data_dir + args.dataset

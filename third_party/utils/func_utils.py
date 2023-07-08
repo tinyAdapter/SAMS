@@ -11,10 +11,9 @@ import torch
 import shutil
 import logging
 
-import torchvision.transforms as transforms
+
 from torch.autograd import Variable
 import torch.nn.functional as F
-import torchvision.datasets as dset
 import torch.nn as nn
 
 warnings.filterwarnings("error")
@@ -115,6 +114,8 @@ def _data_transforms_cifar10(args):
     CIFAR_MEAN = [0.49139968, 0.48215827, 0.44653124]
     CIFAR_STD = [0.24703233, 0.24348505, 0.26158768]
 
+    import torchvision.transforms as transforms
+    # import torchvision.datasets as dset
     train_transform = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
@@ -157,6 +158,8 @@ def _get_cifar10(args):
     return train_queue, valid_queue
 
 def _get_dist_cifar10(args):
+    # import torchvision.transforms as transforms
+    import torchvision.datasets as dset
     train_transform, valid_transform = _data_transforms_cifar10(args)
     train_data = dset.CIFAR10(
         root=args.data, train=True, download=True, transform=train_transform
@@ -187,6 +190,8 @@ def _get_dist_cifar10(args):
     return train_queue, valid_queue, sampler
 
 def _get_dist_imagenet(args):
+    import torchvision.transforms as transforms
+    # import torchvision.datasets as dset
     traindir = os.path.join(args.data_dir, 'train')
     valdir = os.path.join(args.data_dir, 'val')
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
@@ -226,6 +231,8 @@ def _get_dist_imagenet(args):
     return train_loader, val_loader, sampler
 
 def _data_transforms_cifar100(args):
+    import torchvision.transforms as transforms
+    # import torchvision.datasets as dset
     CIFAR_MEAN = [0.5070751592371323, 0.48654887331495095, 0.4409178433670343]
     CIFAR_STD = [0.2673342858792401, 0.2564384629170883, 0.27615047132568404]
 
@@ -271,6 +278,8 @@ def _get_cifar100(args):
     return train_queue, valid_queue
 
 def _get_imagenet_tiny(args):
+    import torchvision.transforms as transforms
+    # import torchvision.datasets as dset
     traindir = os.path.join(args.data, 'train')
     validdir = os.path.join(args.data, 'val')
     normalize = transforms.Normalize(

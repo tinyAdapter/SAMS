@@ -114,14 +114,14 @@ class MOELayer(nn.Module):
         group_layer_output = torch.stack(output, dim=1)
 
         # 2. weighted sum
-        weighted_output = torch.bmm(self.arch_weight, group_layer_output)  # B * nhid
+        weighted_output = torch.bmm(self.arch_weight, group_layer_output).squeeze(1)  # B * nhid
         return weighted_output
 
 
 # MOEMLP
 class MOEMLP(nn.Module):
 
-    def __init__(self, ninput, nlayers, nhid, dropout, K, noutput=1):
+    def __init__(self, ninput, nlayers, nhid, K, dropout, noutput=1):
         """
         :param ninput: input dimension
         :param nlayers: # hidden MOELayer
@@ -149,14 +149,18 @@ class MOEMLP(nn.Module):
         :return:    FloatTensor B*nouput
         """
 
-        assert arch_weights.shape[1] == len(self.layers)
+        # arch weights don't affect last linear layer
+        assert arch_weights.shape[1] == len(self.layers) - 1
 
         # update each moe layer's weight
-        for index in range(arch_weights.shape[1]):                        # Iterating over L, moe_num_layers
-            self.layers[index].arch_weight = x[:, index, :].unsqueeze(1)  # sub_tensor has shape (B, 1, K)
+        for index in range(arch_weights.shape[1]):
+            if isinstance(self.layers[index], MOELayer):
+                # sub_tensor has shape (B, 1, K)
+                self.layers[index].arch_weight = arch_weights[:, index, :].unsqueeze(1)
 
         # then compute
-        return self.moe_net(x)
+        y = self.moe_net(x)  # B * 1
+        return y
 
 
 class HyperNet(torch.nn.Module):
@@ -193,7 +197,7 @@ class HyperNet(torch.nn.Module):
         """
         x_emb = self.embedding.forward_sql(x)          # B*nfield*nemb
         y = self.mlp(x_emb.view(-1, self.mlp_ninput))  # B*L*K
-        return y.squeeze(1)
+        return y
 
 
 class MOENet(torch.nn.Module):
@@ -218,7 +222,11 @@ class MOENet(torch.nn.Module):
         super().__init__()
         self.embedding = Embedding(nfeat, nemb)
         self.moe_mlp_ninput = nfield * nemb
-        self.moe_mlp = MOEMLP(self.moe_mlp_ninput, moe_num_layers, moe_hid_layer_len, K, dropout)
+
+        self.moe_mlp = MOEMLP(ninput=self.moe_mlp_ninput,
+                              nlayers=moe_num_layers,
+                              nhid=moe_hid_layer_len,
+                              K=K, dropout=dropout)
 
     def forward(self, x: Dict[str, torch.Tensor], arch_weights: torch.Tensor):
         """
@@ -228,10 +236,10 @@ class MOENet(torch.nn.Module):
         :return: y of size B, Regression and Classification (+sigmoid)
         """
 
-        x_emb = self.embedding.forward_moe(x)     # B*nfield*nemb
+        x_emb = self.embedding.forward_moe(x)         # B*nfield*nemb
         y = self.moe_mlp.forward(
-            x=x_emb.view(-1, self.mlp_ninput),    # B*nfield*nemb
-            arch_weights=arch_weights,            # B*1*K
+            x=x_emb.view(-1, self.moe_mlp_ninput),    # B*nfield*nemb
+            arch_weights=arch_weights,                # B*1*K
         )   # B*1
         return y.squeeze(1)
 

@@ -16,9 +16,10 @@ class CombinedModel:
         """
         self.args = args
 
-        # declarition
+        # declarition model
         self.hyper_net = None
         self.moe_net = None
+        self.sparsemax = None
 
         # sume of cardinality + 1 of each column
         self.col_cardinality_sum = col_cardinality_sum
@@ -46,6 +47,12 @@ class CombinedModel:
             dropout=self.args.dropout,
             K=self.args.K,
         )
+
+        # define the sparse-softmax.
+        if self.args.alpha == 1.:
+            self.sparsemax = nn.Softmax(dim=-1)
+        else:
+            self.sparsemax = EntmaxBisect(self.args.alpha, dim=-1)
 
     def trian(self,
               train_loader: DataLoader, val_loader: SQLAwareDataset, test_loader: SQLAwareDataset,
@@ -77,12 +84,6 @@ class CombinedModel:
         for p in params:
             p.register_hook(lambda grad: torch.clamp(grad, -1., 1.))
 
-        # define the sparse-softmax.
-        if self.args.alpha == 1.:
-            sparsemax = nn.Softmax(dim=-1)
-        else:
-            sparsemax = EntmaxBisect(self.args.alpha, dim=-1)
-
         # records running info
         info_dic = {}
         valid_auc = -1
@@ -92,18 +93,18 @@ class CombinedModel:
             logger.info(f'Epoch [{epoch:3d}/{self.args.epoch:3d}]')
 
             # 1. train
-            train_auc, train_loss = self.run(epoch, train_loader, sparsemax, opt_metric, optimizer=optimizer, namespace='train')
+            train_auc, train_loss = self.run(epoch, train_loader, opt_metric, optimizer=optimizer, namespace='train')
             scheduler.step()
 
             # 2. valid with valid
             # update val_loader's history
             val_loader.sql_history = train_loader.dataset.sql_history
-            valid_auc, valid_loss = self.run(epoch, val_loader, sparsemax, opt_metric, namespace='val')
+            valid_auc, valid_loss = self.run(epoch, val_loader, opt_metric, namespace='val')
 
             # 3. valid with test
             if use_test_acc:
                 test_loader.sql_history = train_loader.dataset.sql_history
-                test_auc, test_loss = self.run(epoch, test_loader, sparsemax, opt_metric, namespace='test')
+                test_auc, test_loss = self.run(epoch, test_loader, opt_metric, namespace='test')
             else:
                 test_auc = -1
 
@@ -124,11 +125,10 @@ class CombinedModel:
             logger.info(f'valid {valid_auc:.4f}, test {test_auc:.4f}')
 
     #  train one epoch of train/val/test
-    def run(self, epoch, data_loader, sparsemax, opt_metric, optimizer=None, namespace='train'):
+    def run(self, epoch, data_loader, opt_metric, optimizer=None, namespace='train'):
         """
         :param epoch:
         :param data_loader:
-        :param sparsemax: the sparse softmax func
         :param opt_metric: the loss function
         :param optimizer:
         :param namespace: train | valid | test
@@ -169,7 +169,7 @@ class CombinedModel:
 
                 # reshape it to (B, L, K)
                 arch_advisor = arch_advisor.reshape(self.args.batch_size, self.args.moe_num_layers, self.args.K)
-                arch_advisor = sparsemax(arch_advisor)
+                arch_advisor = self.sparsemax(arch_advisor)
 
                 # calculate y and loss
                 y = self.moe_net.forward(data_batch, arch_advisor)
@@ -207,7 +207,7 @@ class CombinedModel:
 
                     # reshape it to (B, L, K), the last batch may less than self.args.batch_size -> arch_advisor.size(0)
                     arch_advisor = arch_advisor.reshape(arch_advisor.size(0), self.args.moe_num_layers, self.args.K)
-                    arch_advisor = sparsemax(arch_advisor)
+                    arch_advisor = self.sparsemax(arch_advisor)
                     # calculate y and loss
                     y = self.moe_net.forward(data_batch, arch_advisor)
                     loss = opt_metric(y, target)
@@ -226,3 +226,27 @@ class CombinedModel:
         logger.info(f'{namespace}\tTime {utils.timeSince(s=time_avg.sum):>12s} '
                     f'AUC {auc_avg.avg:8.4f} Loss {loss_avg.avg:8.4f}')
         return auc_avg.avg, loss_avg.avg
+
+    def inference(self, sql_batch, data_batch):
+        self.hyper_net.eval()
+        self.moe_net.eval()
+        sql_batch_tensor = torch.tensor(sql_batch).to(self.args.device)
+        data_batch['id'] = data_batch['id'].to(self.args.device)
+        data_batch['value'] = data_batch['value'].to(self.args.device)
+
+        with torch.no_grad():
+            arch_advisor = self.hyper_net(sql_batch_tensor)
+            assert arch_advisor.size(1) == self.args.moe_num_layers * self.args.K, \
+                f"{arch_advisor.size()} is not {self.args.batch_size, self.args.moe_num_layers * self.args.K}"
+
+            # reshape it to (B, L, K), the last batch may less than self.args.batch_size -> arch_advisor.size(0)
+            arch_advisor = arch_advisor.reshape(arch_advisor.size(0), self.args.moe_num_layers, self.args.K)
+            arch_advisor = self.sparsemax(arch_advisor)
+            # calculate y and loss
+            y = self.moe_net.forward(data_batch, arch_advisor)
+
+            return y
+
+
+
+

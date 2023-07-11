@@ -1,86 +1,95 @@
-import time
 
-import torch
-import torch.nn as nn
 from torch import optim
 from torch.utils.data import DataLoader
 import argparse
 import calendar
-import json
 import os
 import time
 import traceback
-import sys
 
 
-class ModelTrainer:
+class MOEOnlyRuntime:
 
-    @classmethod
-    def fully_train_arch(cls,
-                         model: nn.Module,
-                         use_test_acc: bool,
-                         epoch_num,
-                         train_loader: DataLoader,
-                         val_loader: DataLoader,
-                         test_loader: DataLoader,
-                         args,
-                         logger=None
-                         ) -> (float, float, dict):
+    def __init__(self, args):
         """
-        Args:
-            model:
-            use_test_acc:
-            epoch_num: how many epoch, set by scheduler
-            train_loader:
-            val_loader:
-            test_loader:
-            args:
-        Returns:
+        :param args: all parameters
         """
+        self.args = args
+
+        # declarition model
+        self.hyper_net = None
+        self.moe_net = None
+        self.sparsemax = None
+
+        self.construct_model()
+
+    def construct_model(self):
+        self.moe_net = MOENet(
+            nfield=self.args.nfield,
+            nfeat=self.args.nfeat,
+            nemb=self.args.data_nemb,
+            moe_num_layers=self.args.moe_num_layers,
+            moe_hid_layer_len=self.args.moe_hid_layer_len,
+            dropout=self.args.dropout,
+            K=self.args.K,
+        )
+
+    def trian(self,
+              train_loader: DataLoader, val_loader: SQLAwareDataset, test_loader: SQLAwareDataset,
+              use_test_acc=True):
+        """
+        :param train_loader: data loaer
+        :param val_loader: data loaer
+        :param test_loader: data loaer
+        :param use_test_acc: if use test dataset to valid during trianing.
+        :return:
+        """
+
         start_time, best_valid_auc = time.time(), 0.
 
-        # training params
-        device = args.device
-        num_labels = args.num_labels
-        lr = args.lr
-        iter_per_epoch = args.iter_per_epoch
+        # define the loss function, for two class classification
+        opt_metric = nn.BCEWithLogitsLoss(reduction='mean').to(self.args.device)
 
-        # assign new values
-        args.epoch_num = epoch_num
+        # define the parameter, which includes both networks
+        params = list(self.moe_net.parameters())
+        optimizer = torch.optim.Adam(params, lr=self.args.lr)
 
-        opt_metric = nn.BCEWithLogitsLoss(reduction='mean').to(device)
-
-        optimizer = optim.Adam(model.parameters(), lr=lr)
+        # scheduler to update the learning rate
         scheduler = optim.lr_scheduler.CosineAnnealingLR(
             optimizer,
-            T_max=epoch_num,  # Maximum number of iterations.
-            eta_min=1e-4)     # Minimum learning rate.
+            T_max=self.args.epoch,  # Maximum number of iterations.
+            eta_min=1e-4)  # Minimum learning rate.
 
-        # gradient clipping, set the gradient value to be -1 - 1
-        for p in model.parameters():
+        # gradient clipping, set the gradient value to be -1 - 1 to prevent exploding gradients
+        for p in params:
             p.register_hook(lambda grad: torch.clamp(grad, -1., 1.))
 
+        # records running info
         info_dic = {}
         valid_auc = -1
-        for epoch in range(epoch_num):
-            logger.info(f'Epoch [{epoch:3d}/{epoch_num:3d}]')
-            # train and eval
-            # print("begin to train...")
-            train_auc, train_loss = ModelTrainer.run(logger,
-                epoch, iter_per_epoch, model, train_loader, opt_metric, args, optimizer=optimizer, namespace='train')
+        test_auc = -1
+        # train for epoches.
+        for epoch in range(self.args.epoch):
+            logger.info(f'Epoch [{epoch:3d}/{self.args.epoch:3d}]')
+
+            # 1. train
+            train_auc, train_loss = self.run(epoch, train_loader, opt_metric, optimizer=optimizer, namespace='train')
             scheduler.step()
 
-            # print("begin to evaluate...")
-            valid_auc, valid_loss = ModelTrainer.run(logger,
-                                                     epoch, iter_per_epoch, model, val_loader,
-                                                     opt_metric, args, namespace='val')
+            # 2. valid with valid
+            # update val_loader's history
+            val_loader.sql_history = train_loader.dataset.sql_history
+            valid_auc, valid_loss = self.run(epoch, val_loader, opt_metric, namespace='val')
 
+            # 3. valid with test
             if use_test_acc:
-                test_auc, test_loss = ModelTrainer.run(logger,
-                                                       epoch, iter_per_epoch, model, test_loader,
-                                                       opt_metric, args, namespace='test')
+                test_loader.sql_history = train_loader.dataset.sql_history
+                test_auc, test_loss = self.run(epoch, test_loader, opt_metric, namespace='test')
             else:
                 test_auc = -1
+
+            # set to empty for the next epoch
+            train_loader.dataset.reset_sql_his()
 
             info_dic[epoch] = {
                 "train_auc": train_auc,
@@ -89,67 +98,107 @@ class ModelTrainer:
                 "valid_loss": valid_loss,
                 "train_val_total_time": time.time() - start_time}
 
-            # record best auc and save checkpoint
-            if valid_auc >= best_valid_auc:
-                best_valid_auc, best_test_auc = valid_auc, test_auc
-                logger.info(f'best valid auc: valid {valid_auc:.4f}, test {test_auc:.4f}')
-            else:
-                logger.info(f'valid {valid_auc:.4f}, test {test_auc:.4f}')
-
-        return valid_auc, time.time() - start_time, info_dic
+        if valid_auc >= best_valid_auc:
+            best_valid_auc, best_test_auc = valid_auc, test_auc
+            logger.info(f'best valid auc: valid {valid_auc:.4f}, test {test_auc:.4f}')
+        else:
+            logger.info(f'valid {valid_auc:.4f}, test {test_auc:.4f}')
 
     #  train one epoch of train/val/test
-    @classmethod
-    def run(cls, logger, epoch, iter_per_epoch, model, data_loader, opt_metric, args, optimizer=None, namespace='train'):
+    def run(self, epoch, data_loader, opt_metric, optimizer=None, namespace='train'):
+        """
+        :param epoch:
+        :param data_loader:
+        :param opt_metric: the loss function
+        :param optimizer:
+        :param namespace: train | valid | test
+        :return:
+        """
+
         if optimizer:
-            model.train()
+            self.hyper_net.train()
+            self.moe_net.train()
         else:
-            model.eval()
+            self.hyper_net.eval()
+            self.moe_net.eval()
 
         time_avg, timestamp = utils.AvgrageMeter(), time.time()
         loss_avg, auc_avg = utils.AvgrageMeter(), utils.AvgrageMeter()
 
-        for batch_idx, batch in enumerate(data_loader):
-            # if suer set this, then only train fix number of iteras
-            # stop training current epoch for evaluation
-            if namespace == 'train' and iter_per_epoch is not None and batch_idx >= iter_per_epoch:
-                break
+        if namespace == 'train':
 
-            target = batch['y'].to(args.device)
-            batch['id'] = batch['id'].to(args.device)
-            batch['value'] = batch['value'].to(args.device)
+            for batch_idx, data_batch in enumerate(data_loader):
+                if namespace == 'train' \
+                        and self.args.iter_per_epoch is not None \
+                        and batch_idx >= self.args.iter_per_epoch:
+                    break
+                sql_batch_tensor = data_batch["sql"].to(self.args.device)
+                target = data_batch['y'].to(self.args.device)
+                data_batch['id'] = data_batch['id'].to(self.args.device)
+                data_batch['value'] = data_batch['value'].to(self.args.device)
 
-            if namespace == 'train':
-                y = model(batch)
+                # Create tensor of size (L, K) where each element is 1/K
+                base_tensor = torch.full((self.args.moe_num_layers, self.args.K), 1.0 / self.args.K)
+                # Replicate this tensor B times to create final tensor
+                arch_advisor = base_tensor.unsqueeze(0).repeat(self.args.batch_size, 1, 1)
+
+                # calculate y and loss
+                y = self.moe_net.forward(data_batch, arch_advisor)
                 loss = opt_metric(y, target)
-
                 optimizer.zero_grad()
+
+                # one step to update both hypernet and moenet
                 loss.backward()
                 optimizer.step()
-            else:
+
+                # logging
+                auc = utils.roc_auc_compute_fn(y, target)
+                loss_avg.update(loss.item(), target.size(0))
+                auc_avg.update(auc, target.size(0))
+
+                time_avg.update(time.time() - timestamp)
+                if batch_idx % self.args.report_freq == 0:
+                    logger.info(f'Epoch [{epoch:3d}/{self.args.epoch}][{batch_idx:3d}/{len(data_loader)}]\t'
+                                f'{time_avg.val:.3f} ({time_avg.avg:.3f}) AUC {auc_avg.val:4f} ({auc_avg.avg:4f}) '
+                                f'Loss {loss_avg.val:8.4f} ({loss_avg.avg:8.4f})')
+        else:
+
+            mini_batches = data_loader.sample_all_data_by_sql(self.args.batch_size)
+
+            for batch_idx, (sql_batch, data_batch) in enumerate(mini_batches):
+                sql_batch_tensor = torch.tensor(sql_batch).to(self.args.device)
+                target = data_batch['y'].to(self.args.device)
+                data_batch['id'] = data_batch['id'].to(self.args.device)
+                data_batch['value'] = data_batch['value'].to(self.args.device)
+
                 with torch.no_grad():
-                    y = model(batch)
+                    arch_advisor = self.hyper_net(sql_batch_tensor)
+                    assert arch_advisor.size(1) == self.args.moe_num_layers * self.args.K, \
+                        f"{arch_advisor.size()} is not {self.args.batch_size, self.args.moe_num_layers * self.args.K}"
+
+                    # Create tensor of size (L, K) where each element is 1/K
+                    base_tensor = torch.full((self.args.moe_num_layers, self.args.K), 1.0 / self.args.K)
+                    # Replicate this tensor B times to create final tensor
+                    arch_advisor = base_tensor.unsqueeze(0).repeat(arch_advisor.size(0), 1, 1)
+
+                    # calculate y and loss
+                    y = self.moe_net.forward(data_batch, arch_advisor)
                     loss = opt_metric(y, target)
 
-            # for multiple classification
-            # auc = utils.roc_auc_compute_fn(torch.nn.functional.softmax(y, dim=1)[:, 1], target)
-            auc = utils.roc_auc_compute_fn(y, target)
-            loss_avg.update(loss.item(), target.size(0))
-            auc_avg.update(auc, target.size(0))
+                # logging
+                auc = utils.roc_auc_compute_fn(y, target)
+                loss_avg.update(loss.item(), target.size(0))
+                auc_avg.update(auc, target.size(0))
 
-            time_avg.update(time.time() - timestamp)
-            timestamp = time.time()
-            if batch_idx % args.report_freq == 0:
-                logger.info(f'Epoch [{epoch:3d}/{args.epoch_num}][{batch_idx:3d}/{len(data_loader)}]\t'
-                            f'{time_avg.val:.3f} ({time_avg.avg:.3f}) AUC {auc_avg.val:4f} ({auc_avg.avg:4f}) '
-                            f'Loss {loss_avg.val:8.4f} ({loss_avg.avg:8.4f})')
+                time_avg.update(time.time() - timestamp)
+                if batch_idx % self.args.report_freq == 0:
+                    logger.info(f'Epoch [{epoch:3d}/{self.args.epoch}][{batch_idx:3d}/{len(data_loader)}]\t'
+                                f'{time_avg.val:.3f} ({time_avg.avg:.3f}) AUC {auc_avg.val:4f} ({auc_avg.avg:4f}) '
+                                f'Loss {loss_avg.val:8.4f} ({loss_avg.avg:8.4f})')
 
         logger.info(f'{namespace}\tTime {utils.timeSince(s=time_avg.sum):>12s} '
                     f'AUC {auc_avg.avg:8.4f} Loss {loss_avg.avg:8.4f}')
         return auc_avg.avg, loss_avg.avg
-
-
-
 
 
 def arch_args(parser):
@@ -161,18 +210,9 @@ def arch_args(parser):
     parser.add_argument('--moe_hid_layer_len', default=10,
                         type=int, help='hidden layer length in MoeLayer')
 
-    # hyperNet
-    parser.add_argument('--num_layers', default=4, type=int,
-                        help='# hidden layers of hyperNet')
-    parser.add_argument('--hid_layer_len', default=10,
-                        type=int, help='hidden layer length in hyerNet')
-
     # embedding layer
     parser.add_argument('--data_nemb', type=int,
                         default=10, help='embedding size 10')
-    parser.add_argument('--sql_nemb', type=int, default=10,
-                        help='embedding size 10')
-
     # other setting
     parser.add_argument('--dropout', default=0.0,
                         type=float, help='dropout rate')
@@ -182,9 +222,6 @@ def trainner_args(parser):
 
     parser.add_argument('--alpha', default=0.1, type=float,
                         help='entmax alpha to control sparsity')
-
-    parser.add_argument('--max_filter_col', type=int, default=4,
-                        help='the number of columns to choose in select...where...')
 
     # MLP model config
     parser.add_argument('--nfeat', type=int, default=369,
@@ -232,7 +269,7 @@ def data_set_config(parser):
 def parse_arguments():
     parser = argparse.ArgumentParser(description='system')
     parser.add_argument('--device', type=str, default="cpu")
-    parser.add_argument('--log_folder', default="baseline", type=str)
+    parser.add_argument('--log_folder', default="baseline1", type=str)
     parser.add_argument('--log_name', type=str,
                         default="run_log", help="file name to store the log")
 
@@ -256,22 +293,16 @@ if __name__ == "__main__":
         "log_file_name", f"{args.log_name}_{args.dataset}_{ts}.log")
 
     from src.singleton import logger
-    from src.data_loader import libsvm_dataloader
+    from src.data_loader import *
+    from src.model import *
+    import third_party.utils.func_utils as utils
 
     try:
-        # read the checkpoint
-
         # 1. data loader
         train_loader, val_loader, test_loader = libsvm_dataloader(args=args)
+        model = MOEOnlyRuntime(args=args)
+        model.trian(train_loader, val_loader, test_loader)
 
-        valid_auc, total_run_time, train_log = ModelTrainer.fully_train_arch(
-            model=model,
-            use_test_acc=False,
-            epoch_num=args.epoch,
-            train_loader=train_loader,
-            val_loader=val_loader,
-            test_loader=test_loader,
-            args=args)
     except:
         logger.info(traceback.format_exc())
 

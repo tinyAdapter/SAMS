@@ -213,7 +213,7 @@ def data_set_config(parser):
 def parse_arguments():
     parser = argparse.ArgumentParser(description='system')
     parser.add_argument('--device', type=str, default="cpu")
-    parser.add_argument('--log_folder', default="baseline", type=str)
+    parser.add_argument('--log_folder', default="baseline2", type=str)
     parser.add_argument('--log_name', type=str,
                         default="run_log", help="file name to store the log")
 

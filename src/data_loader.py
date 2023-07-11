@@ -6,6 +6,74 @@ import random
 from torch.utils.data import Dataset, DataLoader
 
 
+class LibsvmDataset(Dataset):
+    """ Dataset loader for Libsvm data format """
+    def __init__(self, fname, nfields, max_load=-1):
+
+        def decode_libsvm(line):
+            columns = line.split(' ')
+            map_func = lambda pair: (int(pair[0]), float(pair[1]))
+            id, value = zip(*map(lambda col: map_func(col.split(':')), columns[1:]))
+            sample = {'id': torch.LongTensor(id),
+                      'value': torch.FloatTensor(value),
+                      'y': float(columns[0])}
+            return sample
+
+        with open(fname) as f:
+            sample_lines = sum(1 for line in f)
+
+        self.feat_id = torch.LongTensor(sample_lines, nfields)
+        self.feat_value = torch.FloatTensor(sample_lines, nfields)
+        self.y = torch.FloatTensor(sample_lines)
+
+        self.nsamples = 0
+        with tqdm(total=sample_lines) as pbar:
+            with open(fname) as fp:
+                line = fp.readline()
+                while line:
+                    if max_load > 0 and self.nsamples > max_load:
+                        break
+                    try:
+                        sample = decode_libsvm(line)
+                        self.feat_id[self.nsamples] = sample['id']
+                        self.feat_value[self.nsamples] = sample['value']
+                        self.y[self.nsamples] = sample['y']
+                        self.nsamples += 1
+                    except Exception:
+                        print(f'incorrect data format line "{line}" !')
+                    line = fp.readline()
+                    pbar.update(1)
+        print(f'# {self.nsamples} data samples loaded...')
+
+    def __len__(self):
+        return self.nsamples
+
+    def __getitem__(self, idx):
+        return {'id': self.feat_id[idx],
+                'value': self.feat_value[idx],
+                'y': self.y[idx]}
+
+
+def libsvm_dataloader(args):
+    data_dir = args.base_dir + args.dataset
+    print(data_dir)
+    train_file = glob.glob("%s/tr*libsvm" % data_dir)[0]
+    val_file = glob.glob("%s/va*libsvm" % data_dir)[0]
+    test_file = glob.glob("%s/te*libsvm" % data_dir)[0]
+
+    train_loader = DataLoader(LibsvmDataset(train_file, args.nfield, args.max_load),
+                              batch_size=args.batch_size, shuffle=True,
+                              num_workers=args.workers, pin_memory=True)
+    val_loader = DataLoader(LibsvmDataset(val_file, args.nfield, args.max_load),
+                            batch_size=args.batch_size, shuffle=False,
+                            num_workers=args.workers, pin_memory=True)
+    test_loader = DataLoader(LibsvmDataset(test_file, args.nfield),
+                             batch_size=args.batch_size, shuffle=False,
+                             num_workers=args.workers, pin_memory=True)
+
+    return train_loader, val_loader, test_loader
+
+
 class SQLAwareDataset(Dataset):
     """ Dataset loader for Libsvm data format """
 
@@ -198,6 +266,17 @@ class SQLAwareDataset(Dataset):
         return self.nsamples
 
 
+def sql_dataloader(args):
+    data_dir = args.data_dir + args.dataset
+    val_file = glob.glob("%s/va*libsvm" % data_dir)[0]
+    test_file = glob.glob("%s/te*libsvm" % data_dir)[0]
+
+    val_loader = SQLAwareDataset(val_file, args.nfield, args.max_filter_col)
+    test_loader = SQLAwareDataset(test_file, args.nfield, args.max_filter_col)
+
+    return val_loader, test_loader
+
+
 class SQLAttacedLibsvmDataset(Dataset):
     """ Dataset loader for Libsvm data format """
 
@@ -293,17 +372,6 @@ class SQLAttacedLibsvmDataset(Dataset):
         :return:
         """
         self.sql_history.clear()
-
-
-def sql_dataloader(args):
-    data_dir = args.data_dir + args.dataset
-    val_file = glob.glob("%s/va*libsvm" % data_dir)[0]
-    test_file = glob.glob("%s/te*libsvm" % data_dir)[0]
-
-    val_loader = SQLAwareDataset(val_file, args.nfield, args.max_filter_col)
-    test_loader = SQLAwareDataset(test_file, args.nfield, args.max_filter_col)
-
-    return val_loader, test_loader
 
 
 def sql_attached_dataloader(args):

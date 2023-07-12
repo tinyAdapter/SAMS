@@ -1,6 +1,6 @@
 import glob
 from tqdm import tqdm
-from typing import List, Dict, Tuple
+from typing import Any, List, Dict, Tuple
 import torch
 import random
 from torch.utils.data import Dataset, DataLoader
@@ -189,7 +189,9 @@ class SQLAwareDataset(Dataset):
     def __len__(self):
         return self.nsamples
 
-
+    def __getitem__(self, index) -> Any:
+        return self.feat_id[index], self.feat_value[index], self.y[index]
+    
 class SQLAttacedLibsvmDataset(Dataset):
     """ Dataset loader for Libsvm data format """
 

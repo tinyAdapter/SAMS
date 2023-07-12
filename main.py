@@ -7,25 +7,34 @@ import traceback
 
 def arch_args(parser):
     # MOE-NET
-    parser.add_argument('--K', default=4, type=int, help='# duplication layer of each MOElayer')
-    parser.add_argument('--moe_num_layers', default=5, type=int, help='# hidden MOElayers of MOENet')
-    parser.add_argument('--moe_hid_layer_len', default=10, type=int, help='hidden layer length in MoeLayer')
+    parser.add_argument('--K', default=4, type=int,
+                        help='# duplication layer of each MOElayer')
+    parser.add_argument('--moe_num_layers', default=5,
+                        type=int, help='# hidden MOElayers of MOENet')
+    parser.add_argument('--moe_hid_layer_len', default=10,
+                        type=int, help='hidden layer length in MoeLayer')
 
     # hyperNet
-    parser.add_argument('--num_layers', default=4, type=int, help='# hidden layers of hyperNet')
-    parser.add_argument('--hid_layer_len', default=10, type=int, help='hidden layer length in hyerNet')
+    parser.add_argument('--num_layers', default=4, type=int,
+                        help='# hidden layers of hyperNet')
+    parser.add_argument('--hid_layer_len', default=10,
+                        type=int, help='hidden layer length in hyerNet')
 
     # embedding layer
-    parser.add_argument('--data_nemb', type=int, default=10, help='embedding size 10')
-    parser.add_argument('--sql_nemb', type=int, default=10, help='embedding size 10')
+    parser.add_argument('--data_nemb', type=int,
+                        default=10, help='embedding size 10')
+    parser.add_argument('--sql_nemb', type=int, default=10,
+                        help='embedding size 10')
 
     # other setting
-    parser.add_argument('--dropout', default=0.0, type=float, help='dropout rate')
+    parser.add_argument('--dropout', default=0.0,
+                        type=float, help='dropout rate')
 
 
 def trainner_args(parser):
 
-    parser.add_argument('--alpha', default=0.1, type=float, help='entmax alpha to control sparsity')
+    parser.add_argument('--alpha', default=0.1, type=float,
+                        help='entmax alpha to control sparsity')
 
     parser.add_argument('--max_filter_col', type=int, default=4,
                         help='the number of columns to choose in select...where...')
@@ -47,14 +56,17 @@ def trainner_args(parser):
                              'frappe: 20, uci_diabetes: 40, criteo: 10'
                         )
 
-    parser.add_argument('--batch_size', type=int, default=128, help='batch size')
-    parser.add_argument('--lr', type=float, default=0.002, help="learning reate")
+    parser.add_argument('--batch_size', type=int,
+                        default=128, help='batch size')
+    parser.add_argument('--lr', type=float, default=0.002,
+                        help="learning reate")
 
     parser.add_argument('--iter_per_epoch', type=int, default=10,
                         help="200 for frappe, uci_diabetes, 2000 for criteo")
 
     # MLP train config
-    parser.add_argument('--report_freq', type=int, default=30, help='report frequency')
+    parser.add_argument('--report_freq', type=int,
+                        default=30, help='report frequency')
 
 
 def data_set_config(parser):
@@ -74,7 +86,8 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='system')
     parser.add_argument('--device', type=str, default="cpu")
     parser.add_argument('--log_folder', default="sams_logs", type=str)
-    parser.add_argument('--log_name', type=str, default="run_log", help="file name to store the log")
+    parser.add_argument('--log_name', type=str,
+                        default="run_log", help="file name to store the log")
 
     arch_args(parser)
     data_set_config(parser)
@@ -91,7 +104,8 @@ if __name__ == '__main__':
     ts = calendar.timegm(gmt)
 
     os.environ.setdefault("log_logger_folder_name", f"{args.log_folder}")
-    os.environ.setdefault("log_file_name", f"{args.log_name}_{args.dataset}_{ts}.log")
+    os.environ.setdefault(
+        "log_file_name", f"{args.log_name}_{args.dataset}_{ts}.log")
 
     import src.data_loader as data
     from src.singleton import logger
@@ -103,7 +117,10 @@ if __name__ == '__main__':
         val_loader, test_loader = data.sql_dataloader(args=args)
 
         # col_cardinality_sum + 1 for total feature ids.
-        col_cardinality_sum = max(ele for sublist in train_loader.dataset.col_cardinalities for ele in sublist) + 1
+        # TODO(Lingze) why not record it when loading data
+        col_cardinality_sum = max(
+            ele for sublist in train_loader.dataset.col_cardinalities for ele in sublist) + 1
+
         # init model
         model = runtime.CombinedModel(
             args=args,

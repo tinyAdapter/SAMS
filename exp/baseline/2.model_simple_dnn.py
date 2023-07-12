@@ -10,6 +10,7 @@ import os
 import time
 import traceback
 
+# todo: .to(self.args.device) for weigth of hypernet.
 
 # simpel DNN
 class DNNModel(torch.nn.Module):

@@ -90,14 +90,16 @@ class MOELayer(nn.Module):
         self.arch_weight = None     # B*1*K where K is the replication factor.
 
         super().__init__()
-        self.layer_group = list()
+        self.layer_group = []
+        layer_group = []
         for i in range(MOELayer.duplayers):
             layers = list()
             layers.append(nn.Linear(ninput, nhid))
             layers.append(nn.BatchNorm1d(nhid))
             layers.append(nn.ReLU())
             layers.append(nn.Dropout(p=dropout))
-            self.layer_group.append(nn.Sequential(*layers))
+            layer_group.append(nn.Sequential(*layers))
+        self.layer_group = nn.Sequential(*layer_group)
 
     def forward(self, x):
         """

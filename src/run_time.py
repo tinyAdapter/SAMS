@@ -135,6 +135,8 @@ class CombinedModel:
         :return:
         """
 
+        self.hyper_net.to(self.args.device)
+        self.moe_net.to(self.args.device)
         if optimizer:
             self.hyper_net.train()
             self.moe_net.train()
@@ -172,7 +174,7 @@ class CombinedModel:
                 arch_advisor = self.sparsemax(arch_advisor)
 
                 # calculate y and loss
-                y = self.moe_net.forward(data_batch, arch_advisor)
+                y = self.moe_net(data_batch, arch_advisor)
                 loss = opt_metric(y, target)
                 optimizer.zero_grad()
 

@@ -6,11 +6,11 @@ from singleton import logger
 from third_party.utils.model_utils import *
 from data_loader import SQLAwareDataset
 from torch.utils.data import Dataset, DataLoader
-
+from torch.utils.tensorboard.writer import SummaryWriter
 
 class CombinedModel:
 
-    def __init__(self, args, col_cardinality_sum: int):
+    def __init__(self, args, writer:SummaryWriter,col_cardinality_sum: int):
         """
         :param args: all parameters
         """
@@ -23,7 +23,7 @@ class CombinedModel:
 
         # sume of cardinality + 1 of each column
         self.col_cardinality_sum = col_cardinality_sum
-
+        self.writer = writer
         self.construct_model()
 
     def construct_model(self):
@@ -55,7 +55,7 @@ class CombinedModel:
             self.sparsemax = EntmaxBisect(self.args.alpha, dim=-1)
 
     def trian(self,
-              train_loader: DataLoader, val_loader: SQLAwareDataset, test_loader: SQLAwareDataset,
+              train_loader: DataLoader, val_loader: DataLoader, test_loader: DataLoader,
               use_test_acc=True):
         """
         :param train_loader: data loaer
@@ -118,7 +118,18 @@ class CombinedModel:
                 "train_loss": train_loss,
                 "valid_loss": valid_loss,
                 "train_val_total_time": time.time() - start_time}
+            
+            self.writer.add_scalar('Loss/Training_Epoch_Ave_Loss', train_loss, epoch)
+            self.writer.add_scalar('Loss/Valid_Epoch_Ave_Loss', valid_loss, epoch)
+            self.writer.add_scalar('Loss/Test_Epoch_Ave_Loss', test_loss, epoch)
+            
+            
+            self.writer.add_scalar('AUC/Train_Ave_AUC', train_auc, epoch)
+            self.writer.add_scalar('AUC/Valid_Ave_AUC', valid_auc, epoch)
+            self.writer.add_scalar('AUC/Test_Ave_AUC', test_auc, epoch)
 
+            self.writer.flush()
+            
         if valid_auc >= best_valid_auc:
             best_valid_auc, best_test_auc = valid_auc, test_auc
             logger.info(f'best valid auc: valid {valid_auc:.4f}, test {test_auc:.4f}')
@@ -194,6 +205,11 @@ class CombinedModel:
                     logger.info(f'Epoch [{epoch:3d}/{self.args.epoch}][{batch_idx:3d}/{len(data_loader)}]\t'
                                 f'{time_avg.val:.3f} ({time_avg.avg:.3f}) AUC {auc_avg.val:4f} ({auc_avg.avg:4f}) '
                                 f'Loss {loss_avg.val:8.4f} ({loss_avg.avg:8.4f})')
+                
+                step = epoch * len(data_loader) + batch_idx
+                self.writer.add_scalar('Loss/Training_Step_RealTime_Loss', loss.item(), step)
+                self.writer.add_scalar('Loss/Training_Step_Ave_Loss', loss_avg.avg, step)
+                
         else:
 
             # mini_batches = data_loader.sample_all_data_by_sql(self.args.batch_size)
@@ -228,7 +244,8 @@ class CombinedModel:
                     logger.info(f'Epoch [{epoch:3d}/{self.args.epoch}][{batch_idx:3d}/{len(data_loader)}]\t'
                                 f'{time_avg.val:.3f} ({time_avg.avg:.3f}) AUC {auc_avg.val:4f} ({auc_avg.avg:4f}) '
                                 f'Loss {loss_avg.val:8.4f} ({loss_avg.avg:8.4f})')
-
+                
+                
         logger.info(f'{namespace}\tTime {utils.timeSince(s=time_avg.sum):>12s} '
                     f'AUC {auc_avg.avg:8.4f} Loss {loss_avg.avg:8.4f}')
         return auc_avg.avg, loss_avg.avg
@@ -254,5 +271,7 @@ class CombinedModel:
             return y
 
 
+    def close(self):
+        self.writer.close()
 
 

@@ -84,7 +84,7 @@ class MOELayer(nn.Module):
         :param dropout: dropout rate
         """
         if MOELayer.duplayers == 0:
-            raise "Please set hyper K (number of duplication) "
+            raise "please set hyper K (number of duplication) "
 
         # dynamically update this.
         self.arch_weight = None     # B*1*K where K is the replication factor.

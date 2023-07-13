@@ -82,6 +82,10 @@ def data_set_config(parser):
     parser.add_argument('--num_labels', type=int, default=1, help='[2, 2, 2]')
 
 
+def tensorboard_config(parser:argparse.ArgumentParser):
+    parser.add_argument('--exp', type=str, default = 'exp', help="the directory to store training tensorboard log")
+    parser.add_argument('--train_dir', type=str, required=True, help="the name of this train process")
+    
 def parse_arguments():
     parser = argparse.ArgumentParser(description='system')
     parser.add_argument('--device', type=str, default="cpu")
@@ -92,8 +96,10 @@ def parse_arguments():
     arch_args(parser)
     data_set_config(parser)
     trainner_args(parser)
-
+    tensorboard_config(parser)
+    
     return parser.parse_args()
+
 
 
 if __name__ == '__main__':
@@ -110,7 +116,8 @@ if __name__ == '__main__':
     import src.data_loader as data
     from src.singleton import logger
     import src.run_time as runtime
-
+    from src.tensorlog import setup_tensorboard_writer
+    
     try:
         # init data loader
         train_loader, val_loader, test_loader = data.sql_attached_dataloader(args=args)
@@ -120,10 +127,12 @@ if __name__ == '__main__':
         # TODO(Lingze) why not record it when loading data
         col_cardinality_sum = max(
             ele for sublist in train_loader.dataset.col_cardinalities for ele in sublist) + 1
-
+        
+        writer = setup_tensorboard_writer(args)
         # init model
         model = runtime.CombinedModel(
             args=args,
+            writer=writer,
             col_cardinality_sum=col_cardinality_sum)
 
         model.trian(train_loader, val_loader, test_loader)

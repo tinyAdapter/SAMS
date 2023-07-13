@@ -98,12 +98,13 @@ class CombinedModel:
 
             # 2. valid with valid
             # update val_loader's history
-            val_loader.sql_history = train_loader.dataset.sql_history
+            # logger.info(f'Training sql histry = {len(train_loader.dataset.sql_history)}')
+            # val_loader.sql_history = train_loader.dataset.sql_history
             valid_auc, valid_loss = self.run(epoch, val_loader, opt_metric, namespace='val')
 
             # 3. valid with test
             if use_test_acc:
-                test_loader.sql_history = train_loader.dataset.sql_history
+                # test_loader.sql_history = train_loader.dataset.sql_history
                 test_auc, test_loss = self.run(epoch, test_loader, opt_metric, namespace='test')
             else:
                 test_auc = -1
@@ -167,10 +168,11 @@ class CombinedModel:
 
                 # 1. get the arch_advisor B*L*K
                 arch_advisor = self.hyper_net(sql_batch_tensor)
-                assert arch_advisor.size() == (self.args.batch_size, self.args.moe_num_layers * self.args.K)
+                assert arch_advisor.size(1) == self.args.moe_num_layers * self.args.K, \
+                    f"{arch_advisor.size()} is not {self.args.batch_size, self.args.moe_num_layers * self.args.K}"
 
                 # reshape it to (B, L, K)
-                arch_advisor = arch_advisor.reshape(self.args.batch_size, self.args.moe_num_layers, self.args.K)
+                arch_advisor = arch_advisor.reshape(arch_advisor.size(0), self.args.moe_num_layers, self.args.K)
                 arch_advisor = self.sparsemax(arch_advisor)
 
                 # calculate y and loss
@@ -194,10 +196,12 @@ class CombinedModel:
                                 f'Loss {loss_avg.val:8.4f} ({loss_avg.avg:8.4f})')
         else:
 
-            mini_batches = data_loader.sample_all_data_by_sql(self.args.batch_size)
-
-            for batch_idx, (sql_batch, data_batch) in enumerate(mini_batches):
-                sql_batch_tensor = torch.tensor(sql_batch).to(self.args.device)
+            # mini_batches = data_loader.sample_all_data_by_sql(self.args.batch_size)
+            # logger.info(f'Validation on {len(mini_batches)} mini_batches')
+            # for batch_idx, (sql_batch, data_batch) in enumerate(mini_batches):
+            #   sql_batch_tensor = torch.tensor(sql_batch).to(self.args.device)
+            for batch_idx, data_batch in enumerate(data_loader):
+                sql_batch_tensor = data_batch["sql"].to(self.args.device)
                 target = data_batch['y'].to(self.args.device)
                 data_batch['id'] = data_batch['id'].to(self.args.device)
                 data_batch['value'] = data_batch['value'].to(self.args.device)

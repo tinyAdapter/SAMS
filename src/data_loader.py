@@ -380,8 +380,18 @@ class SQLAttacedLibsvmDataset(Dataset):
 def sql_attached_dataloader(args):
     data_dir = args.data_dir + args.dataset
     train_file = glob.glob("%s/tr*libsvm" % data_dir)[0]
+    val_file = glob.glob("%s/va*libsvm" % data_dir)[0]
+    test_file = glob.glob("%s/te*libsvm" % data_dir)[0]
 
     train_loader = DataLoader(SQLAttacedLibsvmDataset(train_file, args.nfield, args.max_filter_col),
                               batch_size=args.batch_size, shuffle=True,
                               pin_memory=True)
-    return train_loader
+
+    val_loader = DataLoader(SQLAttacedLibsvmDataset(val_file, args.nfield, args.max_filter_col),
+                            batch_size=args.batch_size, shuffle=False,
+                            pin_memory=True)
+    test_loader = DataLoader(SQLAttacedLibsvmDataset(test_file, args.nfield, args.max_filter_col),
+                             batch_size=args.batch_size, shuffle=False,
+                             pin_memory=True)
+
+    return train_loader, val_loader, test_loader

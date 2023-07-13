@@ -113,8 +113,8 @@ if __name__ == '__main__':
 
     try:
         # init data loader
-        train_loader = data.sql_attached_dataloader(args=args)
-        val_loader, test_loader = data.sql_dataloader(args=args)
+        train_loader, val_loader, test_loader = data.sql_attached_dataloader(args=args)
+        # val_loader, test_loader = data.sql_dataloader(args=args)
 
         # col_cardinality_sum + 1 for total feature ids.
         # TODO(Lingze) why not record it when loading data

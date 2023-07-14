@@ -1,12 +1,13 @@
-import model
+
 import time
 import third_party.utils.func_utils as utils
 from torch import optim
-from singleton import logger
+from src import model
+from src.singleton import logger
 from third_party.utils.model_utils import *
-from data_loader import SQLAwareDataset
+from src.data_loader import SQLAwareDataset
 from torch.utils.data import Dataset, DataLoader
-from torch.utils.tensorboard.writer import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 class CombinedModel:
 

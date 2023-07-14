@@ -3,6 +3,7 @@ import os
 import time
 import argparse
 import traceback
+import warnings
 
 
 def arch_args(parser):
@@ -83,7 +84,7 @@ def data_set_config(parser):
 
 
 def tensorboard_config(parser:argparse.ArgumentParser):
-    parser.add_argument('--exp', type=str, default = 'exp', help="the directory to store training tensorboard log")
+    parser.add_argument('--exp', type=str, default = 'tensor_log', help="the directory to store training tensorboard log")
     parser.add_argument('--train_dir', type=str, required=True, help="the name of this train process")
     
 def parse_arguments():
@@ -112,33 +113,32 @@ if __name__ == '__main__':
     os.environ.setdefault("log_logger_folder_name", f"{args.log_folder}")
     os.environ.setdefault(
         "log_file_name", f"{args.log_name}_{args.dataset}_{ts}.log")
-
-    import src.data_loader as data
-    from src.singleton import logger
-    import src.run_time as runtime
-    from src.tensorlog import setup_tensorboard_writer
     
-    try:
-        # init data loader
-        train_loader, val_loader, test_loader = data.sql_attached_dataloader(args=args)
-        # val_loader, test_loader = data.sql_dataloader(args=args)
+    from src.singleton import logger
+    import src.data_loader as data
+    from src.tensorlog import setup_tensorboard_writer
+    from src.run_time import CombinedModel
+    
+    # init data loader
+    train_loader, val_loader, test_loader = data.sql_attached_dataloader(args=args)
+    # val_loader, test_loader = data.sql_dataloader(args=args)
 
-        # col_cardinality_sum + 1 for total feature ids.
-        # TODO(Lingze) why not record it when loading data
-        col_cardinality_sum = max(
-            ele for sublist in train_loader.dataset.col_cardinalities for ele in sublist) + 1
-        
-        writer = setup_tensorboard_writer(args)
-        # init model
-        model = runtime.CombinedModel(
-            args=args,
-            writer=writer,
-            col_cardinality_sum=col_cardinality_sum)
+    # col_cardinality_sum + 1 for total feature ids.
+    # TODO(Lingze) why not record it when loading data
+    col_cardinality_sum = max(
+        ele for sublist in train_loader.dataset.col_cardinalities for ele in sublist) + 1
+    
+    writer = setup_tensorboard_writer(args)
+    # init model
+    model = CombinedModel(
+        args=args,
+        writer=writer,
+        col_cardinality_sum=col_cardinality_sum)
 
-        model.trian(train_loader, val_loader, test_loader)
+    model.trian(train_loader, val_loader, test_loader)
 
-        print("Done")
-    except Exception as e:
-        print(traceback.format_exc())
-        logger.error("An error occurred: %s", e)
-        logger.error("Traceback: %s", traceback.format_exc())
+    print("Done")
+    # except Exception as e:
+    #     print(traceback.format_exc())
+    #     logger.error("An error occurred: %s", e)
+    #     logger.error("Traceback: %s", traceback.format_exc())

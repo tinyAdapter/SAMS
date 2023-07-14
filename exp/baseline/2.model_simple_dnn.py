@@ -45,7 +45,7 @@ class ModelTrainer:
                          test_loader: DataLoader,
                          args,
                          logger=None
-                         ) -> (float, float, dict):
+                         ):
 
         start_time, best_valid_auc = time.time(), 0.
 

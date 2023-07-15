@@ -2,7 +2,9 @@ import calendar
 import os
 import time
 import argparse
+import random
 
+random.seed(1998)
 
 
 def arch_args(parser):

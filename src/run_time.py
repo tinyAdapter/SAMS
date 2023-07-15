@@ -187,8 +187,8 @@ class Wrapper(object):
                                 f'Loss {loss_avg.val:8.4f} ({loss_avg.avg:8.4f})')
                 
                 step = epoch * len(data_loader) + batch_idx
-                self.writer.add_scalar('Loss/Training_Step_RealTime_Loss', loss.item(), step)
-                self.writer.add_scalar('Loss/Training_Step_Ave_Loss', loss_avg.avg, step)
+                # self.writer.add_scalar('Loss/Training_Step_RealTime_Loss', loss.item(), step)
+                # self.writer.add_scalar('Loss/Training_Step_Ave_Loss', loss_avg.avg, step)
                 
         else:
             for batch_idx, data_batch in enumerate(data_loader):

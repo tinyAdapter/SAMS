@@ -4,7 +4,7 @@ from typing import Any, List, Dict, Tuple
 import torch
 import random
 from torch.utils.data import Dataset, DataLoader
-
+import os
 
 class LibsvmDataset(Dataset):
     """ Dataset loader for Libsvm data format """
@@ -395,3 +395,74 @@ def sql_attached_dataloader(args):
                              pin_memory=True)
 
     return train_loader, val_loader, test_loader
+
+
+def load_data(data_dir, namespace):
+    print(f'# loading data from '
+          f'{data_dir}/{namespace}_feat_id.pt, '
+          f'{data_dir}/{namespace}_feat_value.pt'
+          f'{data_dir}/{namespace}_y.pt ......')
+
+    feat_id = torch.load( f'{data_dir}/{namespace}_feat_id.pt')
+    feat_value = torch.load(f'{data_dir}/{namespace}_feat_value.pt')
+    y = torch.load(f'{data_dir}/{namespace}_y.pt')
+
+    print(f'# {int(y.shape[0])} data samples loaded...')
+
+    return feat_id, feat_value, y, int(y.shape[0])
+
+
+class LibsvmDatasetReadOnce(Dataset):
+    """ Dataset loader for Libsvm data format """
+
+    def __init__(self, fname):
+        parent_directory = os.path.dirname(fname)
+        if "train" in fname:
+            namespace = "decoded_train"
+        elif "valid" in fname:
+            namespace = "decoded_valid"
+        else:
+            raise
+        self.feat_id, self.feat_value, self.y, self.nsamples = load_data(parent_directory, namespace)
+
+        print(f'# {self.nsamples} data samples loaded...')
+
+    def __len__(self):
+        return self.nsamples
+
+    def __getitem__(self, idx):
+        return {'id': self.feat_id[idx],
+                'value': self.feat_value[idx],
+                'y': self.y[idx]}
+
+
+def devoded_libsvm_dataloader(args, data_dir,batch_size):
+    print("Loading data from ", data_dir)
+    workers = args.workers
+    train_file_name = f"{data_dir}/train.libsvm"
+    valid_file_name = f"{data_dir}/valid.libsvm"
+    test_file_name = f"{data_dir}/test.libsvm"
+    print(f"using train={train_file_name}, valid={valid_file_name}")
+    # read the converted file
+    if args.device == "cpu":
+        train_loader = DataLoader(LibsvmDatasetReadOnce(train_file_name),
+                                  batch_size=batch_size,
+                                  shuffle=True)
+        val_loader = DataLoader(LibsvmDatasetReadOnce(valid_file_name),
+                                batch_size=batch_size * 8,
+                                shuffle=False)
+
+    else:
+        train_loader = DataLoader(LibsvmDatasetReadOnce(train_file_name),
+                                  batch_size=batch_size,
+                                  shuffle=True,
+                                  num_workers=workers,
+                                  pin_memory=True)
+
+        val_loader = DataLoader(LibsvmDatasetReadOnce(valid_file_name),
+                                batch_size=batch_size * 8,
+                                shuffle=False,
+                                num_workers=workers,
+                                pin_memory=True)
+
+    return train_loader, val_loader

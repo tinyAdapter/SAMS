@@ -1,61 +1,34 @@
 
 import time
-import third_party.utils.func_utils as utils
+import os
+from copy import deepcopy
+
+import torch
+import torch.nn as nn
 from torch import optim
-from src import model
-from src.singleton import logger
-from third_party.utils.model_utils import *
-from src.data_loader import SQLAwareDataset
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-class CombinedModel:
 
-    def __init__(self, args, writer:SummaryWriter,col_cardinality_sum: int):
+import third_party.utils.func_utils as utils
+from src.singleton import logger
+from src.data_loader import SQLAwareDataset
+
+from src.model import initialize_model
+
+class Wrapper(object):
+
+    def __init__(self, args, writer:SummaryWriter):
         """
         :param args: all parameters
         """
         self.args = args
-
-        # declarition model
-        self.hyper_net = None
-        self.moe_net = None
-        self.sparsemax = None
-
-        # sume of cardinality + 1 of each column
-        self.col_cardinality_sum = col_cardinality_sum
         self.writer = writer
-        self.construct_model()
-
-    def construct_model(self):
-        self.hyper_net = model.HyperNet(
-            nfield=self.args.nfield,
-            nfeat=self.col_cardinality_sum,
-            nemb=self.args.sql_nemb,
-            nlayers=self.args.num_layers,
-            hid_layer_len=self.args.hid_layer_len,
-            dropout=self.args.dropout,
-            L=self.args.moe_num_layers,
-            K=self.args.K,
-        )
-
-        self.moe_net = model.MOENet(
-            nfield=self.args.nfield,
-            nfeat=self.args.nfeat,
-            nemb=self.args.data_nemb,
-            moe_num_layers=self.args.moe_num_layers,
-            moe_hid_layer_len=self.args.moe_hid_layer_len,
-            dropout=self.args.dropout,
-            K=self.args.K,
-        )
-
-        # define the sparse-softmax.
-        if self.args.alpha == 1.:
-            self.sparsemax = nn.Softmax(dim=-1)
-        else:
-            self.sparsemax = EntmaxBisect(self.args.alpha, dim=-1)
-
-    def trian(self,
+        self.net = initialize_model(args)
+        self.save_best_model = args.save_best_model
+        
+        
+    def train(self,
               train_loader: DataLoader, val_loader: DataLoader, test_loader: DataLoader,
               use_test_acc=True):
         """
@@ -66,13 +39,13 @@ class CombinedModel:
         :return:
         """
 
-        start_time, best_valid_auc = time.time(), 0.
+        start_time, best_valid_auc, best_test_auc = time.time(), 0., 0.
 
         # define the loss function, for two class classification
         opt_metric = nn.BCEWithLogitsLoss(reduction='mean').to(self.args.device)
 
         # define the parameter, which includes both networks
-        params = list(self.hyper_net.parameters()) + list(self.moe_net.parameters())
+        params = self.net.parameters()
         optimizer = torch.optim.Adam(params, lr=self.args.lr)
 
         # scheduler to update the learning rate
@@ -89,6 +62,9 @@ class CombinedModel:
         info_dic = {}
         valid_auc = -1
         test_auc = -1
+
+        best_net = self.net
+        best_epoch = 0
         # train for epoches.
         for epoch in range(self.args.epoch):
             logger.info(f'Epoch [{epoch:3d}/{self.args.epoch:3d}]')
@@ -131,12 +107,27 @@ class CombinedModel:
 
             self.writer.flush()
             
-        if valid_auc >= best_valid_auc:
-            best_valid_auc, best_test_auc = valid_auc, test_auc
-            logger.info(f'best valid auc: valid {valid_auc:.4f}, test {test_auc:.4f}')
-        else:
-            logger.info(f'valid {valid_auc:.4f}, test {test_auc:.4f}')
+            if valid_auc >= best_valid_auc:
+                best_epoch = epoch
+                best_valid_auc, best_test_auc = valid_auc, test_auc
+                logger.info(f'best valid auc: valid {valid_auc:.4f}, test {test_auc:.4f}')
+                # update best model
+                if self.save_best_model:
 
+                    best_net = deepcopy(self.net)
+                    
+            else:
+                logger.info(f'valid {valid_auc:.4f}, test {test_auc:.4f}')
+
+        if self.save_best_model:
+            dir_path = os.path.dirname(self.writer.log_dir)
+            torch.save(best_net.state_dict(), os.path.join(dir_path, "best_model.pth"))
+            print(f"Successfully save best model in {best_epoch} into {dir_path}\n")
+        
+        result_info = f"Get best model in epoch {best_epoch}, \
+                    its performanc in validation dataset {best_valid_auc:.4f}, \
+                    in test dataset {best_test_auc:.4f}"
+        self.writer.add_text("Performance", result_info)
     #  train one epoch of train/val/test
     def run(self, epoch, data_loader, opt_metric, optimizer=None, namespace='train'):
         """
@@ -148,14 +139,11 @@ class CombinedModel:
         :return:
         """
 
-        self.hyper_net.to(self.args.device)
-        self.moe_net.to(self.args.device)
+        self.net.to(self.args.device)
         if optimizer:
-            self.hyper_net.train()
-            self.moe_net.train()
+            self.net.train()
         else:
-            self.hyper_net.eval()
-            self.moe_net.eval()
+            self.net.eval()
 
         time_avg, timestamp = utils.AvgrageMeter(), time.time()
         loss_avg, auc_avg = utils.AvgrageMeter(), utils.AvgrageMeter()
@@ -173,22 +161,13 @@ class CombinedModel:
                         and self.args.iter_per_epoch is not None \
                         and batch_idx >= self.args.iter_per_epoch:
                     break
-                sql_batch_tensor = data_batch["sql"].to(self.args.device)
+                sql = data_batch["sql"].to(self.args.device)
                 target = data_batch['y'].to(self.args.device)
-                data_batch['id'] = data_batch['id'].to(self.args.device)
-                data_batch['value'] = data_batch['value'].to(self.args.device)
+                x_id = data_batch['id'].to(self.args.device)
+                x_value = data_batch['value'].to(self.args.device)
 
-                # 1. get the arch_advisor B*L*K
-                arch_advisor = self.hyper_net(sql_batch_tensor)
-                assert arch_advisor.size(1) == self.args.moe_num_layers * self.args.K, \
-                    f"{arch_advisor.size()} is not {self.args.batch_size, self.args.moe_num_layers * self.args.K}"
+                y = self.net((x_id, x_value), sql)
 
-                # reshape it to (B, L, K)
-                arch_advisor = arch_advisor.reshape(arch_advisor.size(0), self.args.moe_num_layers, self.args.K)
-                arch_advisor = self.sparsemax(arch_advisor)
-
-                # calculate y and loss
-                y = self.moe_net(data_batch, arch_advisor)
                 loss = opt_metric(y, target)
                 optimizer.zero_grad()
 
@@ -212,27 +191,14 @@ class CombinedModel:
                 self.writer.add_scalar('Loss/Training_Step_Ave_Loss', loss_avg.avg, step)
                 
         else:
-
-            # mini_batches = data_loader.sample_all_data_by_sql(self.args.batch_size)
-            # logger.info(f'Validation on {len(mini_batches)} mini_batches')
-            # for batch_idx, (sql_batch, data_batch) in enumerate(mini_batches):
-            #   sql_batch_tensor = torch.tensor(sql_batch).to(self.args.device)
             for batch_idx, data_batch in enumerate(data_loader):
-                sql_batch_tensor = data_batch["sql"].to(self.args.device)
+                sql = data_batch["sql"].to(self.args.device)
                 target = data_batch['y'].to(self.args.device)
-                data_batch['id'] = data_batch['id'].to(self.args.device)
-                data_batch['value'] = data_batch['value'].to(self.args.device)
+                x_id = data_batch['id'].to(self.args.device)
+                x_value = data_batch['value'].to(self.args.device)
 
                 with torch.no_grad():
-                    arch_advisor = self.hyper_net(sql_batch_tensor)
-                    assert arch_advisor.size(1) == self.args.moe_num_layers * self.args.K, \
-                        f"{arch_advisor.size()} is not {self.args.batch_size, self.args.moe_num_layers * self.args.K}"
-
-                    # reshape it to (B, L, K), the last batch may less than self.args.batch_size -> arch_advisor.size(0)
-                    arch_advisor = arch_advisor.reshape(arch_advisor.size(0), self.args.moe_num_layers, self.args.K)
-                    arch_advisor = self.sparsemax(arch_advisor)
-                    # calculate y and loss
-                    y = self.moe_net.forward(data_batch, arch_advisor)
+                    y = self.net((x_id, x_value), sql)
                     loss = opt_metric(y, target)
 
                 # logging
@@ -251,28 +217,31 @@ class CombinedModel:
                     f'AUC {auc_avg.avg:8.4f} Loss {loss_avg.avg:8.4f}')
         return auc_avg.avg, loss_avg.avg
 
-    def inference(self, sql_batch, data_batch):
-        self.hyper_net.eval()
-        self.moe_net.eval()
-        sql_batch_tensor = torch.tensor(sql_batch).to(self.args.device)
-        data_batch['id'] = data_batch['id'].to(self.args.device)
-        data_batch['value'] = data_batch['value'].to(self.args.device)
+    
+    # def inference(self, sql_batch, data_batch):
+        
+    #     self.net.eval()
+        
+    #     sql_batch_tensor = torch.tensor(sql_batch).to(self.args.device)
+    #     data_batch['id'] = data_batch['id'].to(self.args.device)
+    #     data_batch['value'] = data_batch['value'].to(self.args.device)
 
-        with torch.no_grad():
-            arch_advisor = self.hyper_net(sql_batch_tensor)
-            assert arch_advisor.size(1) == self.args.moe_num_layers * self.args.K, \
-                f"{arch_advisor.size()} is not {self.args.batch_size, self.args.moe_num_layers * self.args.K}"
+    #     with torch.no_grad():
+    #         arch_advisor = self.hyper_net(sql_batch_tensor)
+    #         assert arch_advisor.size(1) == self.args.moe_num_layers * self.args.K, \
+    #             f"{arch_advisor.size()} is not {self.args.batch_size, self.args.moe_num_layers * self.args.K}"
 
-            # reshape it to (B, L, K), the last batch may less than self.args.batch_size -> arch_advisor.size(0)
-            arch_advisor = arch_advisor.reshape(arch_advisor.size(0), self.args.moe_num_layers, self.args.K)
-            arch_advisor = self.sparsemax(arch_advisor)
-            # calculate y and loss
-            y = self.moe_net.forward(data_batch, arch_advisor)
+    #         # reshape it to (B, L, K), the last batch may less than self.args.batch_size -> arch_advisor.size(0)
+    #         arch_advisor = arch_advisor.reshape(arch_advisor.size(0), self.args.moe_num_layers, self.args.K)
+    #         arch_advisor = self.sparsemax(arch_advisor)
+    #         # calculate y and loss
+    #         y = self.moe_net.forward(data_batch, arch_advisor)
 
-            return y
+    #         return y
 
 
     def close(self):
         self.writer.close()
 
+    
 

@@ -2,21 +2,23 @@ import calendar
 import os
 import time
 import argparse
-import traceback
-import warnings
+
 
 
 def arch_args(parser):
+    # Model Select
+    parser.add_argument('--net', default = "sams", type=str, 
+                        help="select the model to test")
     # MOE-NET
     parser.add_argument('--K', default=4, type=int,
                         help='# duplication layer of each MOElayer')
-    parser.add_argument('--moe_num_layers', default=5,
+    parser.add_argument('--moe_num_layers', default=2,
                         type=int, help='# hidden MOElayers of MOENet')
     parser.add_argument('--moe_hid_layer_len', default=10,
                         type=int, help='hidden layer length in MoeLayer')
 
     # hyperNet
-    parser.add_argument('--num_layers', default=4, type=int,
+    parser.add_argument('--hyper_num_layers', default=2, type=int,
                         help='# hidden layers of hyperNet')
     parser.add_argument('--hid_layer_len', default=10,
                         type=int, help='hidden layer length in hyerNet')
@@ -69,6 +71,8 @@ def trainner_args(parser):
     parser.add_argument('--report_freq', type=int,
                         default=30, help='report frequency')
 
+    parser.add_argument('--save_best_model', type=bool, default=True, 
+                        help='whether to save best model in log')
 
 def data_set_config(parser):
     parser.add_argument('--data_dir', type=str, default="./third_party/data/",
@@ -117,7 +121,7 @@ if __name__ == '__main__':
     from src.singleton import logger
     import src.data_loader as data
     from src.tensorlog import setup_tensorboard_writer
-    from src.run_time import CombinedModel
+    from src.run_time import Wrapper
     
     # init data loader
     train_loader, val_loader, test_loader = data.sql_attached_dataloader(args=args)
@@ -125,18 +129,16 @@ if __name__ == '__main__':
 
     # col_cardinality_sum + 1 for total feature ids.
     # TODO(Lingze) why not record it when loading data
-    col_cardinality_sum = max(
-        ele for sublist in train_loader.dataset.col_cardinalities for ele in sublist) + 1
-    
+
     writer = setup_tensorboard_writer(args)
     # init model
-    model = CombinedModel(
+    model = Wrapper(
         args=args,
-        writer=writer,
-        col_cardinality_sum=col_cardinality_sum)
+        writer=writer)
 
-    model.trian(train_loader, val_loader, test_loader)
-
+    model.train(train_loader, val_loader, test_loader)
+    model.close()
+    
     print("Done")
     # except Exception as e:
     #     print(traceback.format_exc())

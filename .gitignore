@@ -4,4 +4,5 @@
 sams_logs/
 src/__pycache__/
 third_party/utils/__pycache__/
-__pycache__/
+**/__pycache__/
+*.pyc

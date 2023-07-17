@@ -3,6 +3,7 @@ import os
 import glob
 import random
 import numpy as np
+import shutil
 
 from tqdm import tqdm
 from typing import Callable, List
@@ -12,15 +13,23 @@ random.seed(1998)
 
 '''
 Generate Workload
+
+frappe: python generate_workload.py
+uci_diabetes: python generate_workload.py --dataset=uci_diabetes --nfield=43 --output_name='uci_diabetes_random'
+
 '''
 
 pwd = os.getcwd()
 
 
+
 parser = argparse.ArgumentParser(description='wordload_generation')
-parser.add_argument('--output_dir', type=str, default='./workload/frappe_test')
+parser.add_argument('--output_dir', type=str, default='./workload')
+parser.add_argument('--output_name', type=str, default="frappe_random")
+
 parser.add_argument('--data_dir', type=str,
-                    default='./third_party/data/frappe', help="")
+                    default='/hdd1/sams/data', help="")
+parser.add_argument('--dataset', type=str, default="frappe", help="name of dataset")
 parser.add_argument('--nfield', type=int, default=10, help="")
 parser.add_argument('--n', type=int, default=30,
                     help="number of sql in workload")
@@ -48,13 +57,25 @@ def generate_workload(n: int, output_dir: str, data_dir: str, nfield: int, max_s
     sqlf = open(sql_file_path, 'w', encoding='utf-8')
 
     data_dir_path = os.path.join(output_dir, 'data_idx')
+    
+    if os.path.exists(data_dir_path):
+        shutil.rmtree(data_dir_path)
+
+    # Create the new directory
     os.mkdir(data_dir_path)
     
     i = 0
+    
+    freq_map = [0] * len(test_dataset)
+    
     while i < n:
+        
         sql_query, padding_tuple = sample_func(value_map, max_select_col)
         sub_data_idx = filter_data(feat_id, sql_query, col_padding)
 
+        for idx in sub_data_idx:
+            freq_map[idx] += 1
+            
         if len(sub_data_idx) == 0:
             continue
 
@@ -66,6 +87,16 @@ def generate_workload(n: int, output_dir: str, data_dir: str, nfield: int, max_s
         sqlf.write(str(size) +":"+str(padding_tuple) + ":" + str(sql_query) + '\n')
         i += 1
 
+    description_path = os.path.join(output_dir, 'description.txt')
+    with open(description_path, 'w', encoding='utf-8') as f:
+        # calculate coverage
+        cnt = 0
+        for i in freq_map:
+            cnt += 1
+        f.write(f"test size #{len(test_dataset)}\n")
+        f.write(f"coverage {cnt/len(test_dataset):.4f}\n")
+        f.write(f"Max Freq {max(freq_map)}\n")
+        
     dataf.close()
     sqlf.close()
 
@@ -105,13 +136,21 @@ def random_sample(col_cardinalities: List[List], max_select_col: int):
     return sql_tuple, padding_tuple
 
 
+
+
+
 if __name__ == "__main__":
     args = parser.parse_args()
     sample_func = random_sample
+    
+    output_dir = os.path.join(args.output_dir, args.output_name)
+    
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
-    if not os.path.exists(args.output_dir):
-        os.makedirs(args.output_dir)
+    data_dir = os.path.join(args.data_dir, args.dataset)
+    print(data_dir)
 
-    generate_workload(args.n, args.output_dir, args.data_dir,
+    generate_workload(args.n, output_dir, data_dir,
                       args.nfield, args.max_select_col, sample_func)
     print(f"Finished Generate Workload, saved in {args.output_dir}")

@@ -90,7 +90,7 @@ def data_set_config(parser):
 
 
 def tensorboard_config(parser:argparse.ArgumentParser):
-    parser.add_argument('--exp', type=str, default = 'tensor_log', help="the directory to store training tensorboard log")
+    parser.add_argument('--exp', type=str, default = './tensor_log', help="the directory to store training tensorboard log")
     parser.add_argument('--train_dir', type=str, required=True, help="the name of this train process")
     
 def parse_arguments():

@@ -1,6 +1,6 @@
 
 import torch.nn as nn
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 import torch
 
 
@@ -111,6 +111,8 @@ class MOELayer(nn.Module):
         # stack the list along a new dimension to create a tensor of shape B*K*nhid
         group_layer_output = torch.stack(output, dim=1)
 
+        if self.arch_weight is None:
+            return torch.mean(group_layer_output, dim = 1)
         # 2. weighted sum
         weighted_output = torch.bmm(self.arch_weight, group_layer_output).squeeze(1)  # B * nhid
         return weighted_output
@@ -141,12 +143,15 @@ class MOEMLP(nn.Module):
         self.layers.append(nn.Linear(nhid, noutput))
         self.moe_net = nn.Sequential(*self.layers)
 
-    def forward(self, x, arch_weights):
+    def forward(self, x, arch_weights = None):
         """
         :param x:   FloatTensor B*ninput
         :return:    FloatTensor B*nouput
         """
 
+        if arch_weights is None:
+            return self.moe_net(x)
+            
         # arch weights don't affect last linear layer
         assert arch_weights.shape[1] == len(self.layers) - 1
 
@@ -159,6 +164,7 @@ class MOEMLP(nn.Module):
         # then compute
         y = self.moe_net(x)  # B * 1
         return y
+    
 
 
 class HyperNet(torch.nn.Module):
@@ -226,17 +232,16 @@ class MOENet(torch.nn.Module):
                               nhid=moe_hid_layer_len,
                               K=K, dropout=dropout)
 
-    def forward(self, x_id: torch.Tensor, x_value:torch.Tensor, arch_weights: torch.Tensor):
+    def forward(self, x:Tuple[torch.Tensor], arch_weights: Optional[torch.Tensor]):
         """
-
         :param x: {'id': LongTensor B*nfield, 'value': FloatTensor B*nfield}
         :param arch_weights: B*L*K
         :return: y of size B, Regression and Classification (+sigmoid)
         """
-
+        x_id, x_value = x
         x_emb = self.embedding(x_id, x_value)         # B*nfield*nemb
         
-        y = self.moe_mlp.forward(
+        y = self.moe_mlp(
             x=x_emb.view(-1, self.moe_mlp_ninput),    # B*nfield*nemb
             arch_weights=arch_weights,                # B*1*K
         )   # B*1

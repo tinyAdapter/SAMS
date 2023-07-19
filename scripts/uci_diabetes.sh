@@ -133,11 +133,31 @@ nohup ~/anaconda3/bin/python3 main.py \
     --epoch 100 --batch_size 1024 --lr 0.002 \
     --train_dir "Random MoELayer_5:K_4 MoeLayer_3 hyperLayer_5 MoeHidden_128 HyperHidden_128 sql_emb_10 data_emb_10" > /dev/null 2>&1&
 
+# Check MoE Layer 5 (6 layer)
+nohup ~/anaconda3/bin/python3 main.py \
+    --device cuda:6 --log_folder sams_logs --data_dir "/hdd1/sams/data/" \
+    --dataset uci_diabetes --nfeat 369 --nfield 43  --num_labels 1  \
+    --K 4 --moe_num_layers 5 --moe_hid_layer_len 128 --sql_nemb 10 \
+    --hyper_num_layers 2 --hid_layer_len 128 --data_nemb 10 \
+    --dropout 0.3 --alpha 1.7 --max_filter_col 4   \
+    --epoch 100 --batch_size 1024 --lr 0.002 \
+    --train_dir "Random MoELayer_6:K_4 MoeLayer_3 hyperLayer_5 MoeHidden_128 HyperHidden_128 sql_emb_10 data_emb_10" > /dev/null 2>&1&
+
+
+# Check Sparse Alpha = 1
+nohup ~/anaconda3/bin/python3 main.py \
+    --device cuda:7 --log_folder sams_logs --data_dir "/hdd1/sams/data/" \
+    --dataset uci_diabetes --nfeat 369 --nfield 43  --num_labels 1  \
+    --K 4 --moe_num_layers 2 --moe_hid_layer_len 128 --sql_nemb 10 \
+    --hyper_num_layers 2 --hid_layer_len 128 --data_nemb 10 \
+    --dropout 0.3 --alpha 1 --max_filter_col 4   \
+    --epoch 100 --batch_size 1024 --lr 0.002 \
+    --train_dir "Random #Alpha 1:K_4 MoeLayer_3 hyperLayer_3 MoeHidden_128 HyperHidden_128 sql_emb_10 data_emb_10" > /dev/null 2>&1&
 
 
 # Check Sparse Alpha = 1.3
 nohup ~/anaconda3/bin/python3 main.py \
-    --device cuda:6 --log_folder sams_logs --data_dir "/hdd1/sams/data/" \
+    --device cuda:7 --log_folder sams_logs --data_dir "/hdd1/sams/data/" \
     --dataset uci_diabetes --nfeat 369 --nfield 43  --num_labels 1  \
     --K 4 --moe_num_layers 2 --moe_hid_layer_len 128 --sql_nemb 10 \
     --hyper_num_layers 2 --hid_layer_len 128 --data_nemb 10 \
@@ -148,7 +168,7 @@ nohup ~/anaconda3/bin/python3 main.py \
 
 # Check Sparse Alpha = 2.0
 nohup ~/anaconda3/bin/python3 main.py \
-    --device cuda:6 --log_folder sams_logs --data_dir "/hdd1/sams/data/" \
+    --device cuda:4 --log_folder sams_logs --data_dir "/hdd1/sams/data/" \
     --dataset uci_diabetes --nfeat 369 --nfield 43  --num_labels 1  \
     --K 4 --moe_num_layers 2 --moe_hid_layer_len 128 --sql_nemb 10 \
     --hyper_num_layers 2 --hid_layer_len 128 --data_nemb 10 \
@@ -159,7 +179,7 @@ nohup ~/anaconda3/bin/python3 main.py \
 
 # Check Sparse Alpha = 2.3
 nohup ~/anaconda3/bin/python3 main.py \
-    --device cuda:6 --log_folder sams_logs --data_dir "/hdd1/sams/data/" \
+    --device cuda:5 --log_folder sams_logs --data_dir "/hdd1/sams/data/" \
     --dataset uci_diabetes --nfeat 369 --nfield 43  --num_labels 1  \
     --K 4 --moe_num_layers 2 --moe_hid_layer_len 128 --sql_nemb 10 \
     --hyper_num_layers 2 --hid_layer_len 128 --data_nemb 10 \

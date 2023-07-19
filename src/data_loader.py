@@ -6,14 +6,17 @@ import random
 from torch.utils.data import Dataset, DataLoader
 import os
 
+
 class LibsvmDataset(Dataset):
     """ Dataset loader for Libsvm data format """
+
     def __init__(self, fname, nfields, max_load=-1):
 
         def decode_libsvm(line):
             columns = line.split(' ')
-            map_func = lambda pair: (int(pair[0]), float(pair[1]))
-            id, value = zip(*map(lambda col: map_func(col.split(':')), columns[1:]))
+            def map_func(pair): return (int(pair[0]), float(pair[1]))
+            id, value = zip(
+                *map(lambda col: map_func(col.split(':')), columns[1:]))
             sample = {'id': torch.LongTensor(id),
                       'value': torch.FloatTensor(value),
                       'y': float(columns[0])}
@@ -93,7 +96,9 @@ class SQLAwareDataset(Dataset):
             # TODO(lingze): this is not efficient, as we need to read the whole file into memory.
             # use f.readlines() to count the lines of file
             sample_lines = sum(1 for line in f)
-
+        
+        self.generate_sql = True if max_filter_col != 0 else False
+        
         self.feat_id = torch.LongTensor(sample_lines, nfields)
         self.feat_value = torch.FloatTensor(sample_lines, nfields)
         self.y = torch.FloatTensor(sample_lines)
@@ -267,7 +272,7 @@ class SQLAwareDataset(Dataset):
 
     def __getitem__(self, index) -> Any:
         return self.feat_id[index], self.feat_value[index], self.y[index]
-    
+
 
 def sql_dataloader(args):
     data_dir = args.data_dir + args.dataset
@@ -297,6 +302,8 @@ class SQLAttacedLibsvmDataset(Dataset):
 
         with open(fname) as f:
             sample_lines = sum(1 for line in f)
+
+        self.generate_sql = True if max_filter_col != 0 else False
 
         self.feat_id = torch.LongTensor(sample_lines, nfields)
         self.feat_value = torch.FloatTensor(sample_lines, nfields)
@@ -364,7 +371,14 @@ class SQLAttacedLibsvmDataset(Dataset):
         return self.nsamples
 
     def __getitem__(self, idx):
-        return {'sql': self.generate_sql_by_row(self.feat_id[idx]),
+        if self.generate_sql:
+            return {'sql': self.generate_sql_by_row(self.feat_id[idx]),
+                    'id': self.feat_id[idx],
+                    'value': self.feat_value[idx],
+                    'y': self.y[idx]}
+        else:
+            return {
+                'sql': self.feat_id[idx],
                 'id': self.feat_id[idx],
                 'value': self.feat_value[idx],
                 'y': self.y[idx]}
@@ -403,7 +417,7 @@ def load_data(data_dir, namespace):
           f'{data_dir}/{namespace}_feat_value.pt'
           f'{data_dir}/{namespace}_y.pt ......')
 
-    feat_id = torch.load( f'{data_dir}/{namespace}_feat_id.pt')
+    feat_id = torch.load(f'{data_dir}/{namespace}_feat_id.pt')
     feat_value = torch.load(f'{data_dir}/{namespace}_feat_value.pt')
     y = torch.load(f'{data_dir}/{namespace}_y.pt')
 
@@ -423,7 +437,8 @@ class LibsvmDatasetReadOnce(Dataset):
             namespace = "decoded_valid"
         else:
             raise
-        self.feat_id, self.feat_value, self.y, self.nsamples = load_data(parent_directory, namespace)
+        self.feat_id, self.feat_value, self.y, self.nsamples = load_data(
+            parent_directory, namespace)
 
         print(f'# {self.nsamples} data samples loaded...')
 
@@ -436,7 +451,7 @@ class LibsvmDatasetReadOnce(Dataset):
                 'y': self.y[idx]}
 
 
-def devoded_libsvm_dataloader(args, data_dir,batch_size):
+def devoded_libsvm_dataloader(args, data_dir, batch_size):
     print("Loading data from ", data_dir)
     workers = args.workers
     train_file_name = f"{data_dir}/train.libsvm"

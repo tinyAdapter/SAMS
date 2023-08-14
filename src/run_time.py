@@ -12,7 +12,6 @@ from torch.utils.tensorboard import SummaryWriter
 
 import third_party.utils.func_utils as utils
 from src.singleton import logger
-from src.data_loader import SQLAwareDataset
 
 from src.model import initialize_model
 
@@ -67,7 +66,7 @@ class Wrapper(object):
         best_epoch = 0
         # train for epoches.
         for epoch in range(self.args.epoch):
-            logger.info(f'Epoch [{epoch:3d}/{self.args.epoch:3d}]')
+            print(f'Epoch [{epoch:3d}/{self.args.epoch:3d}]')
 
             # 1. train
             train_auc, train_loss = self.run(epoch, train_loader, opt_metric, optimizer=optimizer, namespace='train')
@@ -75,7 +74,7 @@ class Wrapper(object):
 
             # 2. valid with valid
             # update val_loader's history
-            # logger.info(f'Training sql histry = {len(train_loader.dataset.sql_history)}')
+            # print(f'Training sql histry = {len(train_loader.dataset.sql_history)}')
             # val_loader.sql_history = train_loader.dataset.sql_history
             valid_auc, valid_loss = self.run(epoch, val_loader, opt_metric, namespace='val')
 
@@ -110,14 +109,14 @@ class Wrapper(object):
             if valid_auc >= best_valid_auc:
                 best_epoch = epoch
                 best_valid_auc, best_test_auc = valid_auc, test_auc
-                logger.info(f'best valid auc: valid {valid_auc:.4f}, test {test_auc:.4f}')
+                print(f'best valid auc: valid {valid_auc:.4f}, test {test_auc:.4f}')
                 # update best model
                 if self.save_best_model:
 
                     best_net = deepcopy(self.net)
                     
             else:
-                logger.info(f'valid {valid_auc:.4f}, test {test_auc:.4f}')
+                print(f'valid {valid_auc:.4f}, test {test_auc:.4f}')
 
         if self.save_best_model:
             dir_path = os.path.dirname(self.writer.log_dir)
@@ -182,7 +181,7 @@ class Wrapper(object):
 
                 time_avg.update(time.time() - timestamp)
                 if batch_idx % self.args.report_freq == 0:
-                    logger.info(f'Epoch [{epoch:3d}/{self.args.epoch}][{batch_idx:3d}/{len(data_loader)}]\t'
+                    print(f'Epoch [{epoch:3d}/{self.args.epoch}][{batch_idx:3d}/{len(data_loader)}]\t'
                                 f'{time_avg.val:.3f} ({time_avg.avg:.3f}) AUC {auc_avg.val:4f} ({auc_avg.avg:4f}) '
                                 f'Loss {loss_avg.val:8.4f} ({loss_avg.avg:8.4f})')
                 
@@ -208,12 +207,12 @@ class Wrapper(object):
 
                 time_avg.update(time.time() - timestamp)
                 if batch_idx % self.args.report_freq == 0:
-                    logger.info(f'Epoch [{epoch:3d}/{self.args.epoch}][{batch_idx:3d}/{len(data_loader)}]\t'
+                    print(f'Epoch [{epoch:3d}/{self.args.epoch}][{batch_idx:3d}/{len(data_loader)}]\t'
                                 f'{time_avg.val:.3f} ({time_avg.avg:.3f}) AUC {auc_avg.val:4f} ({auc_avg.avg:4f}) '
                                 f'Loss {loss_avg.val:8.4f} ({loss_avg.avg:8.4f})')
                 
                 
-        logger.info(f'{namespace}\tTime {utils.timeSince(s=time_avg.sum):>12s} '
+        print(f'{namespace}\tTime {utils.timeSince(s=time_avg.sum):>12s} '
                     f'AUC {auc_avg.avg:8.4f} Loss {loss_avg.avg:8.4f}')
         return auc_avg.avg, loss_avg.avg
 

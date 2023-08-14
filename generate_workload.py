@@ -5,17 +5,25 @@ import random
 import numpy as np
 import shutil
 
-from tqdm import tqdm
 from typing import Callable, List
-from src.data_loader import SQLAttacedLibsvmDataset, SQLAwareDataset
+from src.data_loader import SQLAttacedLibsvmDataset
 
 random.seed(1998)
 
 '''
 Generate Workload
 
-frappe: python generate_workload.py
-uci_diabetes: python generate_workload.py --dataset=uci_diabetes --nfield=43 --output_name='uci_diabetes_random'
+frappe: 
+python generate_workload.py --output_dir="/hdd1/sams/data/frappe/workload"
+
+uci_diabetes: 
+python generate_workload.py --output_dir="/hdd1/sams/data/uci_diabetes/workload" --dataset=uci_diabetes --nfield=43 --output_name='random'
+
+bank:   
+python generate_workload.py --output_dir="/hdd1/sams/data/bank/workload" --dataset=bank --nfield=16 --output_name='random'
+
+adult:
+python generate_workload.py --output_dir="/hdd1/sams/data/adult/workload" --dataset=adult --nfield=13 --output_name='random'
 
 '''
 
@@ -25,7 +33,7 @@ pwd = os.getcwd()
 
 parser = argparse.ArgumentParser(description='wordload_generation')
 parser.add_argument('--output_dir', type=str, default='./workload')
-parser.add_argument('--output_name', type=str, default="frappe_random")
+parser.add_argument('--output_name', type=str, default="random")
 
 parser.add_argument('--data_dir', type=str,
                     default='/hdd1/sams/data', help="")
@@ -37,7 +45,7 @@ parser.add_argument('--max_select_col', type=int, default=4,
                     help="max selected column number for filter")
 
 
-def generate_workload(n: int, output_dir: str, data_dir: str, nfield: int, max_select_col: int, sample_func: Callable):
+def generate_workload(n: int, output_dir: str, data_dir: str, nfield: int, max_select_col: int, sample_func: Callable, min_sub_dataset:int = 20):
 
     # read train dataset get dict configuration
     train_file = glob.glob("%s/tr*libsvm" % data_dir)[0]
@@ -45,7 +53,7 @@ def generate_workload(n: int, output_dir: str, data_dir: str, nfield: int, max_s
 
     # test dataset
     test_file = glob.glob("%s/te*libsvm" % data_dir)[0]
-    test_dataset = SQLAwareDataset(test_file, nfield, max_select_col)
+    test_dataset = SQLAttacedLibsvmDataset(test_file, nfield, max_select_col)
 
     value_map = train_dataset.col_cardinalities
     col_padding = train_dataset.padding_feature_id
@@ -73,6 +81,9 @@ def generate_workload(n: int, output_dir: str, data_dir: str, nfield: int, max_s
         sql_query, padding_tuple = sample_func(value_map, max_select_col)
         sub_data_idx = filter_data(feat_id, sql_query, col_padding)
 
+        if len(sub_data_idx) < min_sub_dataset:
+            continue
+        
         for idx in sub_data_idx:
             freq_map[idx] += 1
             
@@ -88,6 +99,7 @@ def generate_workload(n: int, output_dir: str, data_dir: str, nfield: int, max_s
         i += 1
 
     description_path = os.path.join(output_dir, 'description.txt')
+    
     with open(description_path, 'w', encoding='utf-8') as f:
         # calculate coverage
         cnt = 0

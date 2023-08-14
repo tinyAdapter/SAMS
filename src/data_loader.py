@@ -1,304 +1,25 @@
 import glob
 from tqdm import tqdm
-from typing import Any, List, Dict, Tuple
 import torch
 import random
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader,Subset
 import os
 
 
-class LibsvmDataset(Dataset):
-    """ Dataset loader for Libsvm data format """
-
-    def __init__(self, fname, nfields, max_load=-1):
-
-        def decode_libsvm(line):
-            columns = line.split(' ')
-            def map_func(pair): return (int(pair[0]), float(pair[1]))
-            id, value = zip(
-                *map(lambda col: map_func(col.split(':')), columns[1:]))
-            sample = {'id': torch.LongTensor(id),
-                      'value': torch.FloatTensor(value),
-                      'y': float(columns[0])}
-            return sample
-
-        with open(fname) as f:
-            sample_lines = sum(1 for line in f)
-
-        self.feat_id = torch.LongTensor(sample_lines, nfields)
-        self.feat_value = torch.FloatTensor(sample_lines, nfields)
-        self.y = torch.FloatTensor(sample_lines)
-
-        self.nsamples = 0
-        with tqdm(total=sample_lines) as pbar:
-            with open(fname) as fp:
-                line = fp.readline()
-                while line:
-                    if max_load > 0 and self.nsamples > max_load:
-                        break
-                    try:
-                        sample = decode_libsvm(line)
-                        self.feat_id[self.nsamples] = sample['id']
-                        self.feat_value[self.nsamples] = sample['value']
-                        self.y[self.nsamples] = sample['y']
-                        self.nsamples += 1
-                    except Exception:
-                        print(f'incorrect data format line "{line}" !')
-                    line = fp.readline()
-                    pbar.update(1)
-        print(f'# {self.nsamples} data samples loaded...')
-
-    def __len__(self):
-        return self.nsamples
-
-    def __getitem__(self, idx):
-        return {'id': self.feat_id[idx],
-                'value': self.feat_value[idx],
-                'y': self.y[idx]}
-
-
-def libsvm_dataloader(args):
-    data_dir = args.base_dir + args.dataset
-    print(data_dir)
-    train_file = glob.glob("%s/tr*libsvm" % data_dir)[0]
-    val_file = glob.glob("%s/va*libsvm" % data_dir)[0]
-    test_file = glob.glob("%s/te*libsvm" % data_dir)[0]
-
-    train_loader = DataLoader(LibsvmDataset(train_file, args.nfield, args.max_load),
-                              batch_size=args.batch_size, shuffle=True,
-                              num_workers=args.workers, pin_memory=True)
-    val_loader = DataLoader(LibsvmDataset(val_file, args.nfield, args.max_load),
-                            batch_size=args.batch_size, shuffle=False,
-                            num_workers=args.workers, pin_memory=True)
-    test_loader = DataLoader(LibsvmDataset(test_file, args.nfield),
-                             batch_size=args.batch_size, shuffle=False,
-                             num_workers=args.workers, pin_memory=True)
-
-    return train_loader, val_loader, test_loader
-
-
-class SQLAwareDataset(Dataset):
-    """ Dataset loader for Libsvm data format """
-
-    def __init__(self, fname, nfields, max_filter_col):
-
-        def decode_libsvm(line):
-            columns = line.split(' ')
-            def map_func(pair): return (int(pair[0]), float(pair[1]))
-            id, value = zip(
-                *map(lambda col: map_func(col.split(':')), columns[1:]))
-            sample = {'id': torch.LongTensor(id),
-                      'value': torch.FloatTensor(value),
-                      'y': float(columns[0])}
-            return sample
-
-        with open(fname) as f:
-            # TODO(lingze): this is not efficient, as we need to read the whole file into memory.
-            # use f.readlines() to count the lines of file
-            sample_lines = sum(1 for line in f)
-        
-        self.generate_sql = True if max_filter_col != 0 else False
-        
-        self.feat_id = torch.LongTensor(sample_lines, nfields)
-        self.feat_value = torch.FloatTensor(sample_lines, nfields)
-        self.y = torch.FloatTensor(sample_lines)
-
-        self.nsamples = 0
-        with tqdm(total=sample_lines) as pbar:
-            with open(fname) as fp:
-                line = fp.readline()
-                while line:
-                    try:
-                        sample = decode_libsvm(line)
-                        self.feat_id[self.nsamples] = sample['id']
-                        self.feat_value[self.nsamples] = sample['value']
-                        self.y[self.nsamples] = sample['y']
-                        self.nsamples += 1
-                    except Exception:
-                        print(f'incorrect data format line "{line}" !')
-                    line = fp.readline()
-                    pbar.update(1)
-        print(f'# {self.nsamples} data samples loaded...')
-
-        # generate the columsn statics
-        self.max_columns = min(self.feat_id.shape[1], max_filter_col)
-
-        # number of columns
-        self.ncols = self.feat_id.shape[1]
-
-        # Convert the tensor to a list of lists, where each inner list contains the unique values from each column
-        self.col_cardinalities = [
-            self.feat_id[:, i].unique().tolist() for i in range(self.ncols)]
-
-        # add pedding feature_id to each of the columns unique value.
-        self.padding_feature_id = []
-        max_value = max(
-            value for sublist in self.col_cardinalities for value in sublist)
-        for i, sublist in enumerate(self.col_cardinalities):
-            # in place append
-            sublist.append(max_value + 1 + i)
-            self.padding_feature_id.append(max_value + 1 + i)
-
-        # this is used in infernece, as infernece must testd on the trained sql.
-        # TODO(lingze): I think its no need to involve this system variable into ai experiment.
-        self.sql_history = set()
-
-    def sample_all_data_by_sql(self, batch_size: int) -> List[Tuple]:
-        """
-        This is for infernece,
-        :param batch_size:
-        :return:
-        """
-        all_sql = []
-        all_data = []
-
-        for sql in self.sql_history:
-            data_dic = self.select_row_with_sql(sql)
-            # if the sql don;t have matched data, continue to next.
-            if data_dic["id"] is None:
-                continue
-            # add to all_data.
-            all_sql.append(sql)
-            all_data.append(data_dic)
-
-        # generate multiople mini_batches
-        mini_batches = []
-        for i in range(0, len(all_sql), batch_size):
-            mini_batch_sql = all_sql[i:i + batch_size]
-            mini_batch_data = self.stack_batch_row_dict(
-                all_data[i:i + batch_size])
-            mini_batches.append((mini_batch_sql, mini_batch_data))
-
-        return mini_batches
-
-    def sample_batch_sql_and_data(self, batch_size: int):
-        """
-        Sample a batch of sql and corresponding data.
-        :param batch_size:
-        :return:
-        """
-        sql_batch = []
-        data_batch = []
-        while True:
-            # sample
-            sql = self.sample_sql()
-            data_dic = self.select_row_with_sql(sql)
-
-            # if the sql don;t have matched data, continue to next.
-            if data_dic["id"] is None:
-                continue
-
-            # add to batch data
-            sql_batch.append(sql)
-            data_batch.append(data_dic)
-
-            # add to his for inference testing
-            self.sql_history.add(sql)
-            if len(sql_batch) >= batch_size:
-                break
-
-        return sql_batch, self.stack_batch_row_dict(data_batch)
-
-    def sample_sql(self) -> tuple:
-        # 1. firstly randomly pick number of the columns
-        ncol = random.randint(1, self.max_columns)
-        # initialize all columns to last feature in each list, which is the pedding feature
-        random_sql = [col[-1] for col in self.col_cardinalities]
-        # 2. second, randomly find one value per column to form a sql.
-        random_columns_idx = random.sample(range(self.max_columns), ncol)
-        for idx in random_columns_idx:
-            # only sample from the unique feature other than pedding feature.
-            random_sql[idx] = random.choice(self.col_cardinalities[:-1][idx])
-        return tuple(random_sql)
-
-    def select_row_with_sql(self, random_sql: tuple) -> dict:
-        cols_to_check = torch.tensor(random_sql)
-        conditions = [
-            self.feat_id[:, i] == cols_to_check[i]
-            if cols_to_check[i] not in self.padding_feature_id
-            else torch.ones(self.feat_id.shape[0], dtype=torch.bool)
-            for i in range(self.feat_id.shape[1])
-        ]
-
-        matching_rows = torch.stack(conditions).all(dim=0)
-
-        if matching_rows.any():
-            # Get the indices of all matching rows
-            all_matching_indices = matching_rows.nonzero(as_tuple=True)[0]
-
-            # Randomly select one row
-            selected_index = random.choice(all_matching_indices.tolist())
-
-            selected_row_feat_id = self.feat_id[selected_index, :].squeeze()
-            selected_row_feat_value = self.feat_value[selected_index, :].squeeze(
-            )
-            selected_row_y = self.y[selected_index].squeeze()
-        else:
-            selected_row_feat_id = None
-            selected_row_feat_value = None
-            selected_row_y = None
-
-        return {'id': selected_row_feat_id, 'value': selected_row_feat_value, 'y': selected_row_y}
-
-    def reset_sql_his(self):
-        """
-        Called after each epoch. such that infernece can use the same sql set.
-        :return:
-        """
-        self.sql_history.clear()
-
-    def stack_batch_row_dict(self, list_of_rows: List[Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
-        # Initialize empty lists for each key
-        id_list = []
-        value_list = []
-        y_list = []
-
-        # Iterate over all dictionaries
-        for d in list_of_rows:
-            id_list.append(d['id'])
-            value_list.append(d['value'])
-            y_list.append(d['y'])
-
-        # Stack tensors along a new dimension
-        id_tensor = torch.stack(id_list, dim=0)
-        value_tensor = torch.stack(value_list, dim=0)
-        y_tensor = torch.stack(y_list, dim=0)
-
-        result_dict = {'id': id_tensor, 'value': value_tensor, 'y': y_tensor}
-        return result_dict
-
-    def __len__(self):
-        return self.nsamples
-
-    def __getitem__(self, index) -> Any:
-        return self.feat_id[index], self.feat_value[index], self.y[index]
-
-
-def sql_dataloader(args):
-    data_dir = args.data_dir + args.dataset
-    val_file = glob.glob("%s/va*libsvm" % data_dir)[0]
-    test_file = glob.glob("%s/te*libsvm" % data_dir)[0]
-
-    val_loader = SQLAwareDataset(val_file, args.nfield, args.max_filter_col)
-    test_loader = SQLAwareDataset(test_file, args.nfield, args.max_filter_col)
-
-    return val_loader, test_loader
-
+def decode_libsvm(line):
+    columns = line.split(' ')
+    def map_func(pair): return (int(pair[0]), float(pair[1]))
+    id, value = zip(
+        *map(lambda col: map_func(col.split(':')), columns[1:]))
+    sample = {'id': torch.LongTensor(id),
+                'value': torch.FloatTensor(value),
+                'y': float(columns[0])}
+    return sample
 
 class SQLAttacedLibsvmDataset(Dataset):
     """ Dataset loader for Libsvm data format """
 
     def __init__(self, fname, nfields, max_filter_col):
-
-        def decode_libsvm(line):
-            columns = line.split(' ')
-            def map_func(pair): return (int(pair[0]), float(pair[1]))
-            id, value = zip(
-                *map(lambda col: map_func(col.split(':')), columns[1:]))
-            sample = {'id': torch.LongTensor(id),
-                      'value': torch.FloatTensor(value),
-                      'y': float(columns[0])}
-            return sample
 
         with open(fname) as f:
             sample_lines = sum(1 for line in f)
@@ -367,21 +88,16 @@ class SQLAttacedLibsvmDataset(Dataset):
         self.sql_history.add(tuple(random_sql))
         return torch.tensor(random_sql)
 
+    
     def __len__(self):
         return self.nsamples
 
     def __getitem__(self, idx):
-        if self.generate_sql:
-            return {'sql': self.generate_sql_by_row(self.feat_id[idx]),
-                    'id': self.feat_id[idx],
-                    'value': self.feat_value[idx],
-                    'y': self.y[idx]}
-        else:
-            return {
-                'sql': self.feat_id[idx],
+        return {'sql': self.generate_sql_by_row(self.feat_id[idx]),
                 'id': self.feat_id[idx],
                 'value': self.feat_value[idx],
                 'y': self.y[idx]}
+
 
     def reset_sql_his(self):
         """
@@ -391,8 +107,87 @@ class SQLAttacedLibsvmDataset(Dataset):
         self.sql_history.clear()
 
 
+class SQLAwareDataset(Dataset):
+    
+    def __init__(self, fname, nfields):
+        with open(fname) as f:
+            sample_lines = sum(1 for line in f)
+            
+        self.feat_id = torch.LongTensor(sample_lines, nfields)
+        self.feat_value = torch.FloatTensor(sample_lines, nfields)
+        self.y = torch.FloatTensor(sample_lines)
+        
+        self.nsamples = 0
+        
+        with tqdm(total=sample_lines) as pbar:
+            with open(fname) as fp:
+                line = fp.readline()
+                while line:
+                    try:
+                        sample = decode_libsvm(line)
+                        self.feat_id[self.nsamples] = sample['id']
+                        self.feat_value[self.nsamples] = sample['value']
+                        self.y[self.nsamples] = sample['y']
+                        self.nsamples += 1
+                    except Exception:
+                        print(f'incorrect data format line "{line}" !')
+                    line = fp.readline()
+                    pbar.update(1)
+        print(f'# {self.nsamples} data samples loaded...')
+        
+    def __len__(self):
+        return self.nsamples
+    
+    def __getitem__(self, idx):
+        return {'sql': self.generate_sql_by_row(self.feat_id[idx]),
+                'id': self.feat_id[idx],
+                'value': self.feat_value[idx],
+                'y': self.y[idx]}
+        
+class Workload(object):
+    
+    def __init__(self, dataset:Dataset, dir_path:str):
+        print(dir_path)
+        assert os.path.exists(dir_path)
+        
+        sql_file = os.path.join(dir_path, "sql.txt")
+        idx_file_dir = os.path.join(dir_path, "data_idx")
+        
+        assert os.path.exists(sql_file)
+        assert os.path.exists(idx_file_dir)
+        
+        self.dataset = dataset
+        self.init_sql(file_path=sql_file)
+        
+        self.sub_idx_path_list = [os.path.join(idx_file_dir, i) for i in os.listdir(idx_file_dir)]
+
+        self.length = len(self.sql_list)
+        assert self.length == len(self.sub_idx_path_list)
+        
+        
+    def init_sql(self, file_path:str):
+        self.sql_list = []
+        with open(file_path, 'r') as f:
+            for line in f.readlines():
+                self.sql_list.append(eval(line.split(":")[-1].strip()))
+
+    def __len__(self):
+        return self.length
+    
+    
+    def __getitem__(self, index):
+        with open(self.sub_idx_path_list[index], 'r') as f:
+            idxs = eval(f.read().strip())
+            
+        sql = torch.LongTensor(self.sql_list[index])
+        return Subset(self.dataset, idxs), sql
+    
+    
+
+
 def sql_attached_dataloader(args):
-    data_dir = args.data_dir + args.dataset
+    
+    data_dir = os.path.join(args.data_dir, args.dataset)
     train_file = glob.glob("%s/tr*libsvm" % data_dir)[0]
     val_file = glob.glob("%s/va*libsvm" % data_dir)[0]
     test_file = glob.glob("%s/te*libsvm" % data_dir)[0]
@@ -400,16 +195,21 @@ def sql_attached_dataloader(args):
     train_loader = DataLoader(SQLAttacedLibsvmDataset(train_file, args.nfield, args.max_filter_col),
                               batch_size=args.batch_size, shuffle=True,
                               pin_memory=True)
-
+    
     val_loader = DataLoader(SQLAttacedLibsvmDataset(val_file, args.nfield, args.max_filter_col),
-                            batch_size=args.batch_size, shuffle=False,
-                            pin_memory=True)
-    test_loader = DataLoader(SQLAttacedLibsvmDataset(test_file, args.nfield, args.max_filter_col),
-                             batch_size=args.batch_size, shuffle=False,
-                             pin_memory=True)
+                              batch_size=args.batch_size, shuffle=False,
+                              pin_memory=True)
+    
+    # val_dataset = SQLAwareDataset(val_file, args.nfield)
+    # val_workload = Workload(val_dataset, os.path.join(data_dir, args.workload))
+    
+    test_dataset = SQLAwareDataset(test_file, args.nfield)
+    test_workload = Workload(test_dataset, os.path.join(data_dir, "workload", args.workload))
+    
+    return train_loader, val_loader, test_workload
 
-    return train_loader, val_loader, test_loader
 
+''' ---------------------  Big Dataset Loading ---------------------'''
 
 def load_data(data_dir, namespace):
     print(f'# loading data from '

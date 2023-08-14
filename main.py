@@ -86,6 +86,9 @@ def data_set_config(parser):
                              'criteo, '
                              'uci_diabetes')
 
+    parser.add_argument('--workload', type=str, default='random',
+                        help='workload name according to different sample strategy')
+    
     parser.add_argument('--num_labels', type=int, default=1, help='[2, 2, 2]')
 
 
@@ -116,21 +119,13 @@ if __name__ == '__main__':
     gmt = time.gmtime()
     ts = calendar.timegm(gmt)
 
-    os.environ.setdefault("log_logger_folder_name", f"{args.log_folder}")
-    os.environ.setdefault(
-        "log_file_name", f"{args.log_name}_{args.dataset}_{ts}.log")
-    
-    from src.singleton import logger
     import src.data_loader as data
     from src.tensorlog import setup_tensorboard_writer
     from src.run_time import Wrapper
     
     # init data loader
     train_loader, val_loader, test_loader = data.sql_attached_dataloader(args=args)
-    # val_loader, test_loader = data.sql_dataloader(args=args)
 
-    # col_cardinality_sum + 1 for total feature ids.
-    # TODO(Lingze) why not record it when loading data
 
     writer = setup_tensorboard_writer(args)
     # init model
@@ -142,7 +137,3 @@ if __name__ == '__main__':
     model.close()
     
     print("Done")
-    # except Exception as e:
-    #     print(traceback.format_exc())
-    #     logger.error("An error occurred: %s", e)
-    #     logger.error("Traceback: %s", traceback.format_exc())

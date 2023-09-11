@@ -448,13 +448,30 @@ def roc_auc_compute_fn(y_pred, y_target):
 
     y_true = y_target.numpy()
     y_pred = y_pred.numpy()
+    
+    return roc_auc_score(y_true, y_pred)
+
+
+def pr_auc_compute_fn(y_pred, y_target):
+    """ IGNITE.CONTRIB.METRICS.AUC_PR """
     try:
-        return roc_auc_score(y_true, y_pred)
-    except ValueError:
-        print('ValueError: Only one class present in y_true. ROC AUC score is not defined in that case.')
-        return 0.
+        from sklearn.metrics import average_precision_score
+    except ImportError:
+        raise RuntimeError("This contrib module requires sklearn to be installed.")
+    if y_pred.requires_grad:
+        y_pred = y_pred.detach()
 
+    if y_target.is_cuda:
+        y_target = y_target.cpu()
+    if y_pred.is_cuda:
+        y_pred = y_pred.cpu()
 
+    y_true = y_target.numpy()
+    y_pred = y_pred.numpy()
+
+    return average_precision_score(y_true, y_pred)
+
+    
 def load_checkpoint(args):
     try:
         return torch.load(args.resume)

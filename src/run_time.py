@@ -1,13 +1,16 @@
 
+import json
 import time
 import os
 from copy import deepcopy
+from typing import Union
 
 import torch
 import torch.nn as nn
 from torch import optim
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+from src.data_loader import Workload
 
 
 import third_party.utils.func_utils as utils
@@ -26,9 +29,8 @@ class Wrapper(object):
         self.net = initialize_model(args)
         self.save_best_model = args.save_best_model
         
-        
     def train(self,
-              train_loader: DataLoader, val_loader: DataLoader, test_loader: DataLoader,
+              train_loader: DataLoader, val_loader: DataLoader, test_loader: Workload,
               use_test_acc=True):
         """
         :param train_loader: data loaer
@@ -38,7 +40,7 @@ class Wrapper(object):
         :return:
         """
 
-        start_time, best_valid_auc, best_test_auc = time.time(), 0., 0.
+        start_time, best_valid_auc = time.time(), 0.
 
         # define the loss function, for two class classification
         opt_metric = nn.BCEWithLogitsLoss(reduction='mean').to(self.args.device)
@@ -59,76 +61,114 @@ class Wrapper(object):
 
         # records running info
         info_dic = {}
-        valid_auc = -1
-        test_auc = -1
-
+        
+        
         best_net = self.net
         best_epoch = 0
+        
+
+            
         # train for epoches.
         for epoch in range(self.args.epoch):
             print(f'Epoch [{epoch:3d}/{self.args.epoch:3d}]')
 
             # 1. train
-            train_auc, train_loss = self.run(epoch, train_loader, opt_metric, optimizer=optimizer, namespace='train')
+            train_auc, train_pr, train_loss = self.run(epoch, train_loader, opt_metric, optimizer=optimizer, namespace='train')
             scheduler.step()
 
             # 2. valid with valid
             # update val_loader's history
             # print(f'Training sql histry = {len(train_loader.dataset.sql_history)}')
             # val_loader.sql_history = train_loader.dataset.sql_history
-            valid_auc, valid_loss = self.run(epoch, val_loader, opt_metric, namespace='val')
+            valid_auc, valid_pr, valid_loss = self.run(epoch, val_loader, opt_metric, namespace='val')
 
             # 3. valid with test
             if use_test_acc:
                 # test_loader.sql_history = train_loader.dataset.sql_history
-                test_auc, test_loss = self.run(epoch, test_loader, opt_metric, namespace='test')
+                (test_micro_auc, test_micro_auc_ ,test_macro_auc), (test_micro_pr, test_micro_pr_ ,test_macro_pr) ,test_loss = self.run(epoch, test_loader, opt_metric, namespace='test')
             else:
-                test_auc = -1
+                test_micro_auc = -1
 
             # set to empty for the next epoch
             train_loader.dataset.reset_sql_his()
 
             info_dic[epoch] = {
-                "train_auc": train_auc,
-                "valid_auc": valid_auc,
+                "train_aucroc": train_auc,
+                "train_aucpr":train_pr,
                 "train_loss": train_loss,
-                "valid_loss": valid_loss,
-                "train_val_total_time": time.time() - start_time}
+                
+                "valid_aucroc": valid_auc,
+                "valid_aucpr":valid_pr,
+                "valid_loss":valid_loss,
+
+                "test_micro_roc":test_micro_auc,
+                "test_macro_roc":test_macro_auc,
+                "test_micro_pr": test_micro_pr,
+                "test_macro_pr": test_macro_pr,
+                "test_micro_roc_": test_micro_auc_,
+                "test_micro_pr_": test_micro_pr_,
+                "test_loss": test_loss,
+                
+                "train_val_total_time": time.time() - start_time
+                }
+            
             
             self.writer.add_scalar('Loss/Training_Epoch_Ave_Loss', train_loss, epoch)
             self.writer.add_scalar('Loss/Valid_Epoch_Ave_Loss', valid_loss, epoch)
             self.writer.add_scalar('Loss/Test_Epoch_Ave_Loss', test_loss, epoch)
             
             
-            self.writer.add_scalar('AUC/Train_Ave_AUC', train_auc, epoch)
-            self.writer.add_scalar('AUC/Valid_Ave_AUC', valid_auc, epoch)
-            self.writer.add_scalar('AUC/Test_Ave_AUC', test_auc, epoch)
-
+            self.writer.add_scalar('AUCROC/Train_Ave', train_auc, epoch)
+            self.writer.add_scalar('AUCROC/Valid_Ave', valid_auc, epoch)
+            self.writer.add_scalar('AUCROC/Workload_Micro', test_micro_auc, epoch)
+            self.writer.add_scalar('AUCROC/Workload_Macro', test_macro_auc, epoch)
+            self.writer.add_scalar('AUCROC/Workload_Micro_P', test_micro_auc_, epoch)
+            
+            self.writer.add_scalar('AUCPR/Train_Ave', train_pr, epoch)
+            self.writer.add_scalar('AUCPR/Valid_Ave', valid_pr, epoch)
+            self.writer.add_scalar('AUCPR/Workload_Micro', test_micro_pr, epoch)
+            self.writer.add_scalar('AUCPR/Workload_Macro', test_macro_pr, epoch)
+            self.writer.add_scalar('AUCPR/Workload_Micro_P', test_micro_pr_, epoch)
+            
             self.writer.flush()
             
             if valid_auc >= best_valid_auc:
                 best_epoch = epoch
-                best_valid_auc, best_test_auc = valid_auc, test_auc
-                print(f'best valid auc: valid {valid_auc:.4f}, test {test_auc:.4f}')
+                best_valid_auc = valid_auc
+                print(f'best valid auc: valid {valid_auc:.4f}, test {test_micro_auc:.4f}')
                 # update best model
                 if self.save_best_model:
 
                     best_net = deepcopy(self.net)
                     
             else:
-                print(f'valid {valid_auc:.4f}, test {test_auc:.4f}')
+                print(f'valid {valid_auc:.4f}, test {test_micro_auc:.4f}')
 
         if self.save_best_model:
             dir_path = os.path.dirname(self.writer.log_dir)
             torch.save(best_net.state_dict(), os.path.join(dir_path, "best_model.pth"))
-            print(f"Successfully save best model in {best_epoch} into {dir_path}\n")
+            print(f"Successfully save best model in {best_epoch}, Test Pefromance AUC:{info_dic[best_epoch]['test_micro_roc']:.4f} into {dir_path}")
         
-        result_info = f"Get best model in epoch {best_epoch}, \
-                    its performanc in validation dataset {best_valid_auc:.4f}, \
-                    in test dataset {best_test_auc:.4f}"
-        self.writer.add_text("Performance", result_info)
+        best_dic = info_dic[best_epoch]
+        msg = (f"\n--------------------Final Result -----------------\n" 
+            + f"Get Best Model in epoch {best_epoch}\n"
+            + f"Validation Performance:\n"
+            + f"AUCROC:{best_dic['valid_aucroc']:.4f} AUCPR:{best_dic['valid_aucpr']:.4f}\n"
+            + f"Workload Pefromance:\n"
+            + f"Micro-AUCROC-P:{best_dic['test_micro_roc_']:.4f} Micro-AUCROC:{best_dic['test_micro_roc']:.4f} Macro-AUCROC:{best_dic['test_macro_roc']:.4f}\n"
+            + f"Micro-AUCPR-P:{best_dic['test_micro_pr_']:.4f} Micro-AUCPR:{best_dic['test_micro_pr']:.4f} Macro-AUCPR:{best_dic['test_macro_pr']:.4f}\n"     
+            )
+
+        print(msg)
+        self.writer.add_text("Performance", msg)
+        
+        with open(os.path.join(dir_path, 'exp_info.json'), 'w', encoding='utf-8') as f:
+            json.dump(info_dic, f) 
+        
+        # save info dict
+        dir_path = os.path.dirname(self.writer.log_dir)
     #  train one epoch of train/val/test
-    def run(self, epoch, data_loader, opt_metric, optimizer=None, namespace='train'):
+    def run(self, epoch, data_loader:Union[DataLoader, Workload], opt_metric, optimizer=None, namespace='train'):
         """
         :param epoch:
         :param data_loader:
@@ -145,8 +185,9 @@ class Wrapper(object):
             self.net.eval()
 
         time_avg, timestamp = utils.AvgrageMeter(), time.time()
-        loss_avg, auc_avg = utils.AvgrageMeter(), utils.AvgrageMeter()
-
+        loss_avg, auc_avg, pr_avg = utils.AvgrageMeter(), utils.AvgrageMeter(), utils.AvgrageMeter()
+        
+        
         if namespace == 'train':
 
             # for batch_idx in range(self.args.iter_per_epoch):
@@ -156,18 +197,22 @@ class Wrapper(object):
             # sql_batch_tensor = torch.tensor(sql_batch).to(self.args.device)
 
             for batch_idx, data_batch in enumerate(data_loader):
-                if namespace == 'train' \
-                        and self.args.iter_per_epoch is not None \
-                        and batch_idx >= self.args.iter_per_epoch:
+                if batch_idx >= self.args.iter_per_epoch:
                     break
                 sql = data_batch["sql"].to(self.args.device)
                 target = data_batch['y'].to(self.args.device)
                 x_id = data_batch['id'].to(self.args.device)
-                x_value = data_batch['value'].to(self.args.device)
+                # x_value = data_batch['value'].to(self.args.device)
 
-                y = self.net((x_id, x_value), sql)
-
-                loss = opt_metric(y, target)
+                # y = self.net((x_id, x_value), sql)
+                y = self.net(x_id, sql)
+                aux_loss = 0
+                
+                if isinstance(y, tuple):
+                    y, aux_loss = y
+                
+                loss = opt_metric(y, target) + self.args.beta * aux_loss
+                
                 optimizer.zero_grad()
 
                 # one step to update both hypernet and moenet
@@ -176,45 +221,123 @@ class Wrapper(object):
 
                 # logging
                 auc = utils.roc_auc_compute_fn(y, target)
+                pr = utils.pr_auc_compute_fn(y, target)
+                
                 loss_avg.update(loss.item(), target.size(0))
                 auc_avg.update(auc, target.size(0))
-
+                pr_avg.update(pr, target.size(0))
+                
                 time_avg.update(time.time() - timestamp)
                 if batch_idx % self.args.report_freq == 0:
                     print(f'Epoch [{epoch:3d}/{self.args.epoch}][{batch_idx:3d}/{len(data_loader)}]\t'
-                                f'{time_avg.val:.3f} ({time_avg.avg:.3f}) AUC {auc_avg.val:4f} ({auc_avg.avg:4f}) '
-                                f'Loss {loss_avg.val:8.4f} ({loss_avg.avg:8.4f})')
+                                f'Time {time_avg.val} AUC {auc_avg.avg:.4f} PR {pr_avg.avg:.4f} '  
+                                f'Loss {loss_avg.avg:.4f}')
                 
                 step = epoch * len(data_loader) + batch_idx
-                # self.writer.add_scalar('Loss/Training_Step_RealTime_Loss', loss.item(), step)
-                # self.writer.add_scalar('Loss/Training_Step_Ave_Loss', loss_avg.avg, step)
                 
-        else:
+        elif namespace == 'val':
             for batch_idx, data_batch in enumerate(data_loader):
                 sql = data_batch["sql"].to(self.args.device)
                 target = data_batch['y'].to(self.args.device)
                 x_id = data_batch['id'].to(self.args.device)
-                x_value = data_batch['value'].to(self.args.device)
+                # x_value = data_batch['value'].to(self.args.device)
 
                 with torch.no_grad():
-                    y = self.net((x_id, x_value), sql)
-                    loss = opt_metric(y, target)
+                    # y = self.net((x_id, x_value), sql)
+                    y = self.net(x_id, sql)
+                    
+                    aux_loss = 0
+                    if isinstance(y, tuple):
+                        y, aux_loss = y
+                    loss = opt_metric(y, target) +  self.args.beta * aux_loss
 
                 # logging
                 auc = utils.roc_auc_compute_fn(y, target)
+                pr = utils.pr_auc_compute_fn(y, target)
+                
                 loss_avg.update(loss.item(), target.size(0))
                 auc_avg.update(auc, target.size(0))
-
+                pr_avg.update(pr, target.size(0))
+                
                 time_avg.update(time.time() - timestamp)
-                if batch_idx % self.args.report_freq == 0:
-                    print(f'Epoch [{epoch:3d}/{self.args.epoch}][{batch_idx:3d}/{len(data_loader)}]\t'
-                                f'{time_avg.val:.3f} ({time_avg.avg:.3f}) AUC {auc_avg.val:4f} ({auc_avg.avg:4f}) '
-                                f'Loss {loss_avg.val:8.4f} ({loss_avg.avg:8.4f})')
                 
+        else:
+            # test
+            workload:Workload = data_loader
+            n = len(workload)
+            y_workload_list = []
+            target_workload_list = []
+            auc_avg_, pr_avg_ = utils.AvgrageMeter(), utils.AvgrageMeter()
+            for i in range(n):
+                dataset, sql = workload[i]
+                data_loader = DataLoader(dataset, batch_size = self.args.batch_size, shuffle=False, pin_memory=True)
+                sql = sql.to(self.args.device)
                 
+                target_list = []
+                y_list = []
+                loss_list = []
+                for batch_idx, data_batch in enumerate(data_loader):    
+                    target = data_batch['y'].to(self.args.device)
+                    target_list.append(target)
+                    
+                    x_id = data_batch['id'].to(self.args.device)
+                    # x_value = data_batch['value'].to(self.args.device)
+                    
+                    B = target.shape[0]
+                    # print(f"x_id shape{x_id.shape}")
+                    sql_ = sql.unsqueeze(0).expand(B, -1) # [B, nfield]
+                    with torch.no_grad():
+                        # y = self.net((x_id, x_value), sql_)
+                        y = self.net(x_id, sql_)
+                        aux_loss = 0
+                        
+                        if isinstance(y, tuple):
+                            y, aux_loss = y
+                        loss = opt_metric(y, target) + self.args.beta * aux_loss
+                        
+                        y_list.append(y)
+                        loss_list.append(loss.item())
+                
+                target = torch.cat(target_list, dim = 0) # [#n]
+                y = torch.cat(y_list, dim = 0)
+                
+                loss = sum(loss_list)
+                loss_avg.update(loss, target.size(0))
+                
+                y_workload_list.append(y)
+                target_workload_list.append(target)
+                
+                try:                
+                    auc = utils.roc_auc_compute_fn(y, target)
+                    pr = utils.pr_auc_compute_fn(y, target)
+                    
+                    auc_avg.update(auc, y.shape[0])
+                    pr_avg.update(pr, y.shape[0])
+                    
+                    auc_avg_.update(auc, 1)
+                    pr_avg_.update(pr,  1)
+                except ValueError:
+                    # print("Skip this workload micro-evaluation")
+                    pass
+
+
+            y_workload = torch.cat(y_workload_list, dim = 0)
+            target_workload = torch.cat(target_workload_list, dim = 0)
+            
+            auc = utils.roc_auc_compute_fn(y_workload, target_workload)
+            pr = utils.pr_auc_compute_fn(y_workload, target_workload)
+            
+            print(f'\n--------------------Workload Test----------------------\n'
+                  f'PureMICRO AUC-ROC {auc_avg_.avg:8.4f} Micro AUC-ROC {auc_avg.avg:8.4f} Macro AUC-ROC {auc:8.4f}\n'
+                  f'PureMICRO AUC-PR {pr_avg_.avg:8.4f} Micro AUC-PR {pr_avg.avg:8.4f} Macro AUC-PR{pr:8.4f}\n'
+                  f'-------------------------------------------------------\n'
+                  )
+            return (auc_avg.avg, auc_avg_.avg, auc), (pr_avg.avg, pr_avg_.avg, pr), loss_avg.avg
+        
         print(f'{namespace}\tTime {utils.timeSince(s=time_avg.sum):>12s} '
                     f'AUC {auc_avg.avg:8.4f} Loss {loss_avg.avg:8.4f}')
-        return auc_avg.avg, loss_avg.avg
+        
+        return auc_avg.avg, pr_avg.avg, loss_avg.avg
 
     
     # def inference(self, sql_batch, data_batch):

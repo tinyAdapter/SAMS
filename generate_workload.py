@@ -25,6 +25,8 @@ python generate_workload.py --output_dir="/hdd1/sams/data/bank/workload" --datas
 adult:
 python generate_workload.py --output_dir="/hdd1/sams/data/adult/workload" --dataset=adult --nfield=13 --output_name='random'
 
+cardiovascular disease:
+python generate_workload.py --output_dir="/hdd1/sams/data/cvd/workload" --dataset=cvd --nfield=11 --output_name='random'
 '''
 
 pwd = os.getcwd()

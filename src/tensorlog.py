@@ -5,7 +5,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 def setup_tensorboard_writer(args):
-    train_dir = os.path.join(args.exp,  args.dataset,args.train_dir)
+    train_dir = os.path.join(args.exp,  args.dataset, args.train_dir)
     
     if not os.path.isdir(train_dir):
         os.makedirs(train_dir)
@@ -22,4 +22,4 @@ def setup_tensorboard_writer(args):
 
     # suffix = f"{} "
     writer = SummaryWriter(log_dir=tensor_dir_path)
-    return writer
+    return writer   

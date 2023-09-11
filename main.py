@@ -14,6 +14,10 @@ def arch_args(parser):
     # MOE-NET
     parser.add_argument('--K', default=4, type=int,
                         help='# duplication layer of each MOElayer')
+    parser.add_argument('--C', default=1, type=int,
+                        help= '# chosen experts')
+    parser.add_argument('--noise', default=True, type=bool, dest='noise_gating',
+                        help= 'whether adding noise when training MoE network')
     parser.add_argument('--moe_num_layers', default=2,
                         type=int, help='# hidden MOElayers of MOENet')
     parser.add_argument('--moe_hid_layer_len', default=10,
@@ -24,7 +28,8 @@ def arch_args(parser):
                         help='# hidden layers of hyperNet')
     parser.add_argument('--hid_layer_len', default=10,
                         type=int, help='hidden layer length in hyerNet')
-
+    parser.add_argument('--output_size', default=1,
+                        type = int, help='Binary Classification Task')
     # embedding layer
     parser.add_argument('--data_nemb', type=int,
                         default=10, help='embedding size 10')
@@ -41,6 +46,9 @@ def trainner_args(parser):
     parser.add_argument('--alpha', default=0.1, type=float,
                         help='entmax alpha to control sparsity')
 
+    parser.add_argument('--beta', default=0.01, type=float,
+                        help='coefficient for auxiliary loss')
+    
     parser.add_argument('--max_filter_col', type=int, default=4,
                         help='the number of columns to choose in select...where...')
 
@@ -66,7 +74,7 @@ def trainner_args(parser):
     parser.add_argument('--lr', type=float, default=0.002,
                         help="learning reate")
 
-    parser.add_argument('--iter_per_epoch', type=int, default=10,
+    parser.add_argument('--iter_per_epoch', type=int, default=15,
                         help="200 for frappe, uci_diabetes, 2000 for criteo")
 
     # MLP train config

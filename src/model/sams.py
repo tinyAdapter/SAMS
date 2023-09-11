@@ -50,9 +50,11 @@ class SAMS(nn.Module):
         
         arch_advisor = self.sparsemax(arch_advisor)
         
-        x_id, x_value = x
+        # x_id, x_value = x
         
-        y = self.moe_net((x_id, x_value), arch_advisor)
+        # y = self.moe_net((x_id, x_value), arch_advisor)
+        
+        y = self.moe_net(x, arch_advisor)
         # (B, C)
         return y
         

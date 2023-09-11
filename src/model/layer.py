@@ -238,9 +238,9 @@ class MOENet(torch.nn.Module):
         :param arch_weights: B*L*K
         :return: y of size B, Regression and Classification (+sigmoid)
         """
-        x_id, x_value = x
-        x_emb = self.embedding(x_id, x_value)         # B*nfield*nemb
-        
+        # x_id, x_value = x
+        # x_emb = self.embedding(x_id, x_value)         # B*nfield*nemb
+        x_emb = self.embedding(x)
         y = self.moe_mlp(
             x=x_emb.view(-1, self.moe_mlp_ninput),    # B*nfield*nemb
             arch_weights=arch_weights,                # B*1*K

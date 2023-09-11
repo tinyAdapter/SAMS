@@ -139,8 +139,7 @@ class SQLAwareDataset(Dataset):
         return self.nsamples
     
     def __getitem__(self, idx):
-        return {'sql': self.generate_sql_by_row(self.feat_id[idx]),
-                'id': self.feat_id[idx],
+        return {'id': self.feat_id[idx],
                 'value': self.feat_value[idx],
                 'y': self.y[idx]}
         
@@ -204,7 +203,11 @@ def sql_attached_dataloader(args):
     # val_workload = Workload(val_dataset, os.path.join(data_dir, args.workload))
     
     test_dataset = SQLAwareDataset(test_file, args.nfield)
-    test_workload = Workload(test_dataset, os.path.join(data_dir, "workload", args.workload))
+    # print(data_dir)
+    # print(args.workload)
+    workload_dir = os.path.join(data_dir, "workload", args.workload)
+
+    test_workload = Workload(test_dataset, workload_dir)
     
     return train_loader, val_loader, test_workload
 

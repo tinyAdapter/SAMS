@@ -50,21 +50,18 @@ class DNN(torch.nn.Module):
     """
     Model:  Deep Neural Networks
     """
-    def __init__(self, nfield:int, nfeat:int, nemb:int, moe_num_layers:int, dropout:float):
+    def __init__(self, nfield:int, nfeat:int, nemb:int, output_size:int,hid_size:int, dropout:float):
         """
         :param nfield: # columns
         :param nfeat: # feature of the dataset.
         :param nemb: hyperm, embedding size 10
-        :param moe_num_layers: hyperm: # hidden MOElayers of MOENet
-        :param moe_hid_size: hyperm: hidden layer length in MoeLayer
+        :param hid_size: hyperm: hidden layer length in MoeLayer
         :param dropout: hyperparams 0
-        :param K: # duplicat number
         """
         super().__init__()
         self.embedding = Embedding(nfeat, nemb)
-        self.mlp_ninput = nfield * nemb
 
-        self.mlp = VerticalDNN(self.mlp_ninput, 1, moe_num_layers, dropout)
+        self.mlp = VerticalDNN(nfield, nemb, output_size, hid_size, dropout)
 
     def forward(self, x:Tuple[torch.Tensor], _):
         """
@@ -75,9 +72,8 @@ class DNN(torch.nn.Module):
         # x_id, x_value = x
         # x_emb = self.embedding(x_id, x_value)         # B*nfield*nemb
         x_emb = self.embedding(x)
-        x=x_emb.view(-1, self.mlp_ninput)
         y = self.mlp(
-            x
+            x_emb
         )   # B*1
         
         return y.squeeze(1)

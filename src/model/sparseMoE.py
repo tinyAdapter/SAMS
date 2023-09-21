@@ -111,12 +111,7 @@ class SparseDispatcher(object):
         # split nonzero gates for each expert
         return torch.split(self._nonzero_gates, self._part_sizes, dim=0)
 
-class Expert(nn.Module):
-    def __init__(self, input_size, output_size, hidden_size):
-        super(Expert,self).__init__()
-        self.input_size = input_size
-        self.output_size = output_size
-        self.hidden_size = hidden_size
+
 
 
 

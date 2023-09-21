@@ -1,45 +1,12 @@
 import argparse
 import torch
 import torch.nn as nn
+from src.model.expert import VerticalDNN
 from src.model.gate_network import SparseVerticalGate, VerticalGate
+from src.model.sparseMoE import SparseMoE
 
-from src.model.sparseMoE import Expert, SparseMoE
 
 
-class VerticalDNN(Expert):
-    
-    def __init__(self, input_size, output_size, hidden_size, dropout):
-        super(VerticalDNN, self).__init__(input_size, output_size, hidden_size)
-        
-        
-        assert output_size == 1
-        # default binary classification.
-        
-        self.fc1 = nn.Linear(input_size, hidden_size)
-        self.bn1 = nn.BatchNorm1d(hidden_size)
-        self.r1 = nn.ReLU()
-        self.d1 = nn.Dropout(dropout)
-        
-        self.fc2 = nn.Linear(hidden_size, hidden_size)
-        self.bn2 = nn.BatchNorm1d(hidden_size)
-        self.r2 = nn.ReLU()
-        self.d2 = nn.Dropout(dropout)
-        
-        self.fc3 = nn.Linear(hidden_size, output_size)
-        # self.r3 = nn.Sigmoid()
-    
-    def forward(self, x):
-        """
-        Args:
-        x : [batch_size, input_size]
-        Return:
-        x : [batch_size, output_size]
-        """
-        x = self.d1(self.r1(self.bn1(self.fc1(x))))
-        x = self.d2(self.r2(self.bn2(self.fc2(x))))
-        # x = self.r3(self.fc3(x))
-        x = self.fc3(x)
-        return x
     
 
 

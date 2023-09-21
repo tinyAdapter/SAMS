@@ -4,9 +4,9 @@ import torch.nn as nn
 
 
 import argparse
+from src.model.expert import initialize_expert
 from src.model.gate_network import SparseVerticalGate
 
-from src.model.verticalMoE import VerticalDNN
 from third_party.utils.model_utils import EntmaxBisect
 
 
@@ -25,13 +25,14 @@ class SparseMax_VerticalSAMS(nn.Module):
         self.gate_input_size = args.nfield * args.sql_nemb
         
         self.input_size = args.nfield * args.data_nemb
-        self.hidden_size = args.hid_layer_len
+        self.hidden_size = args.moe_hid_layer_len
         self.output_size = args.output_size
         self.num_experts = args.K
-        self.alpha = args.alpha
+
         
         self.gate_network = SparseVerticalGate(self.gate_input_size, self.num_experts ,args.hid_layer_len, args.dropout)
-        expert = VerticalDNN(self.input_size, self.output_size, self.hidden_size, args.dropout)
+        
+        expert = initialize_expert(args)
         self.experts = nn.ModuleList([deepcopy(expert) for _ in range(self.num_experts)])
 
         
@@ -41,8 +42,9 @@ class SparseMax_VerticalSAMS(nn.Module):
         nn.init.xavier_uniform_(self.sql_embedding.weight)
         nn.init.xavier_uniform_(self.input_embedding.weight)
 
+        self.alpha = args.alpha
+        # self.alpha = nn.Parameter(torch.tensor(args.alpha, dtype=torch.float32), requires_grad=True)
         self.sparsemax = EntmaxBisect(alpha=self.alpha)
-        
         
         
         ## noisy gating
@@ -68,11 +70,16 @@ class SparseMax_VerticalSAMS(nn.Module):
         Returns:
         y:      [B]
         """
+        if self.args.expert == "afn":
+            # should clip the embedding
+            # since the input will be transfered into log space, should be positive
+            self.embedding_clip()
+            
         x_emb = self.input_embedding(x)         
         sql_emb = self.sql_embedding(sql)
         
         B = x.shape[0]
-        x_emb = x_emb.view(B, -1)
+        # x_emb = x_emb.view(B, -1)
         sql_emb = sql_emb.view(B, -1)
         
         gate_score = self.gate_network(sql_emb)
@@ -134,19 +141,9 @@ class SparseMax_VerticalSAMS(nn.Module):
             return torch.tensor([0], device=x.device, dtype=x.dtype)
         return x.float().var() / (x.float().mean()**2 + eps)
 
-    # def cal_noise_gate(self, x, gates, train, noise_epsilon = 1e-2):
-        
-    #     clean_logits = gates
-    #     if self.noisy_gating and train:
-    #         raw_noise_stddev = x @ self.w_noise
-    #         noise_stddev = ((self.softplus(raw_noise_stddev) + noise_epsilon))
-    #         noisy_logits = clean_logits + (torch.randn_like(clean_logits) * noise_stddev)
-    #         logits = noisy_logits
-    #     else:
-    #         logits = clean_logits
-        
-    #     gate = self.sparsemax(logits)
-    #     load = 0
-    #     # if self.noisy_gating and train:
-    #     return gate, load
-            
+    
+    def embedding_clip(self):
+        "keep AFN expert embeddings positive"
+        with torch.no_grad():
+            self.input_embedding.weight.abs_()
+            self.input_embedding.weight.clamp_(min=1e-4)

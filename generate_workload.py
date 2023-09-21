@@ -8,8 +8,20 @@ import shutil
 from typing import Callable, List
 from src.data_loader import SQLAttacedLibsvmDataset
 
-random.seed(1998)
+def seed_everything(seed: int):
+    import random, os
+    import numpy as np
+    import torch
+    
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = True
 
+seed_everything(1998)
 '''
 Generate Workload
 
@@ -34,7 +46,7 @@ pwd = os.getcwd()
 
 
 parser = argparse.ArgumentParser(description='wordload_generation')
-parser.add_argument('--output_dir', type=str, default='./workload')
+# parser.add_argument('--output_dir', type=str, default='./workload')
 parser.add_argument('--output_name', type=str, default="random")
 
 parser.add_argument('--data_dir', type=str,
@@ -157,14 +169,17 @@ if __name__ == "__main__":
     args = parser.parse_args()
     sample_func = random_sample
     
-    output_dir = os.path.join(args.output_dir, args.output_name)
-    
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+
 
     data_dir = os.path.join(args.data_dir, args.dataset)
     print(data_dir)
-
+    
+    output_dir = os.path.join(data_dir,"workload" ,args.output_name)
+    
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        
     generate_workload(args.n, output_dir, data_dir,
                       args.nfield, args.max_select_col, sample_func)
-    print(f"Finished Generate Workload, saved in {args.output_dir}")
+    
+    print(f"Finished Generate Workload, saved in {output_dir}")

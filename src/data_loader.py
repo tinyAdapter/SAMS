@@ -70,7 +70,7 @@ class SQLAttacedLibsvmDataset(Dataset):
         # this is used in infernece, as infernece must testd on the trained sql.
         self.sql_history = set()
 
-    def generate_sql_by_row(self, row: torch.Tensor) -> torch.Tensor:
+    def generate_sql_by_row(self, row: torch.Tensor):
         # 1. firstly randomly pick number of the columns
         ncol = random.randint(0, self.max_columns)
 
@@ -87,13 +87,19 @@ class SQLAttacedLibsvmDataset(Dataset):
         # record history
         self.sql_history.add(tuple(random_sql))
         return torch.tensor(random_sql)
-
+    
+    def generate_default_sql(self):
+        # default to not select any value, init all columns feature id to last of each list
+        random_sql = [col[-1] for col in self.col_cardinalities]
+        return torch.tensor(random_sql)
+    
     
     def __len__(self):
         return self.nsamples
 
     def __getitem__(self, idx):
         return {'sql': self.generate_sql_by_row(self.feat_id[idx]),
+                'default_sql':self.generate_default_sql(),
                 'id': self.feat_id[idx],
                 'value': self.feat_value[idx],
                 'y': self.y[idx]}

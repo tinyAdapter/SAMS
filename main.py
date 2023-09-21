@@ -1,10 +1,21 @@
 import calendar
-import os
 import time
 import argparse
-import random
 
-random.seed(1998)
+
+def seed_everything(seed: int):
+    import random, os
+    import numpy as np
+    import torch
+    
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = True
+
 
 
 def arch_args(parser):
@@ -40,10 +51,18 @@ def arch_args(parser):
     parser.add_argument('--dropout', default=0.0,
                         type=float, help='dropout rate')
 
-
+    # for AFN/ARMNet
+    parser.add_argument('--nhead', default= 4,
+                        type = int, help = 'number of attention head in armnet ')
+    parser.add_argument('--nhid', default = 4,
+                        type = int, help = 'number of hidden size of specific module in model \
+                            such as attention layer in armnet, afn layer in AFN')
+    # for expert choosing
+    parser.add_argument('--expert', default="dnn",
+                        type = str, help = 'which expert to choose, dnn/afn/cin/armnet')
 def trainner_args(parser):
 
-    parser.add_argument('--alpha', default=0.1, type=float,
+    parser.add_argument('--alpha', default=1.5, type=float,
                         help='entmax alpha to control sparsity')
 
     parser.add_argument('--beta', default=0.01, type=float,
@@ -101,9 +120,9 @@ def data_set_config(parser):
 
 
 def tensorboard_config(parser:argparse.ArgumentParser):
-    parser.add_argument('--exp', type=str, default = './tensor_log', help="the directory to store training tensorboard log")
+    parser.add_argument('--exp', type=str, default = './tensor_log_baseline', help="the directory to store training tensorboard log")
     parser.add_argument('--train_dir', type=str, required=True, help="the name of this train process")
-    
+    parser.add_argument('--seed', type = int, default=1998)
 def parse_arguments():
     parser = argparse.ArgumentParser(description='system')
     parser.add_argument('--device', type=str, default="cpu")
@@ -122,7 +141,6 @@ def parse_arguments():
 
 if __name__ == '__main__':
     args = parse_arguments()
-
     # set the log name
     gmt = time.gmtime()
     ts = calendar.timegm(gmt)
@@ -130,7 +148,7 @@ if __name__ == '__main__':
     import src.data_loader as data
     from src.tensorlog import setup_tensorboard_writer
     from src.run_time import Wrapper
-    
+    seed_everything(args.seed)
     # init data loader
     train_loader, val_loader, test_loader = data.sql_attached_dataloader(args=args)
 

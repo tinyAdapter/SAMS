@@ -42,7 +42,7 @@ class EntmaxBisectFunction(Function):
         ctx.alpha = alpha
         ctx.dim = dim
         d = X.shape[dim]
-
+        
         X = X * (alpha - 1)
 
         max_val, _ = X.max(dim=dim, keepdim=True)
@@ -268,10 +268,12 @@ class EntmaxBisect(nn.Module):
             suffice for machine precision.
 
         """
+        super().__init__()
         self.dim = dim
         self.n_iter = n_iter
-        self.alpha = alpha
-        super().__init__()
+        # self.alpha = alpha
+        self.alpha = nn.Parameter(torch.tensor(alpha, dtype=torch.float32), requires_grad=False)
+
 
     def forward(self, X):
         return entmax_bisect(

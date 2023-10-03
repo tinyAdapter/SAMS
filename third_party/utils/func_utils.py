@@ -445,6 +445,7 @@ def roc_auc_compute_fn(y_pred, y_target):
         y_target = y_target.cpu()
     if y_pred.is_cuda:
         y_pred = y_pred.cpu()
+        
 
     y_true = y_target.numpy()
     y_pred = y_pred.numpy()

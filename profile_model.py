@@ -57,10 +57,13 @@ def fig(x,y,path):
     plt.savefig(path, dpi=300, bbox_inches='tight')
 
 
-
+parser = argparse.ArgumentParser(description='predict FLOPS')
+parser.add_argument('path', type=str, 
+                    help="directory to model file")
 device = 'cuda:2'
 if __name__ == '__main__':
-    path = '/hdd1/sams/tensor_log/bank/armnet_K16_alpha2_beta5e-3_freeze_alpha'
+    args = parser.parse_args()
+    path = args.path
     net, config = load_model(path)
     config.workload = 'random'
     print(config.workload)
@@ -80,6 +83,7 @@ if __name__ == '__main__':
             score = net.cal_gate_score(sql) # [1, n]
             score = score.squeeze(0)
             
+            
             nonzero = score.numpy() != 0            
     	    # L = expert nnum
             frequency.append(nonzero)
@@ -90,13 +94,16 @@ if __name__ == '__main__':
     frequency = np.sum(frequency, axis=0) / len(workload)
     frequency = frequency.tolist()
 
+    
 
     print(config.K)
     print(net.sparsemax.alpha)
     print(frequency)
     fig(range(len(frequency)), frequency, "./Expert.png")
     fig(range(len(expert_num_for_each_item)), expert_num_for_each_item, "./Item.png")        
-        
+    
+    ave_expert = sum(expert_num_for_each_item)/len(expert_num_for_each_item)    
+    print(ave_expert)
     
     # calculate if sql is all padding, means no predicate.
     sql = train_loader.dataset.generate_default_sql()

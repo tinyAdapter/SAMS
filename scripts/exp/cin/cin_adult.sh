@@ -7,7 +7,7 @@
     --moe_hid_layer_len 32 --data_nemb 10\
     --nhid 16\
     --hid_layer_len 32 --sql_nemb 5\
-    --dropout 0.3   \
+    --dropout 0.2   \
     --K 16 --alpha 2.5 --max_filter_col 8\
     --epoch 50 --batch_size 1024 --lr 0.002 \
     --seed 2022\

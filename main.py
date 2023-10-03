@@ -68,6 +68,9 @@ def trainner_args(parser):
     parser.add_argument('--beta', default=0.01, type=float,
                         help='coefficient for auxiliary loss')
     
+    parser.add_argument('--gamma', default=0.0, type=float,
+                        help="sparse for auxiliary loss")
+    
     parser.add_argument('--max_filter_col', type=int, default=4,
                         help='the number of columns to choose in select...where...')
 

@@ -1,7 +1,7 @@
 import argparse
 import torch
 import torch.nn as nn
-from src.model.expert import VerticalDNN
+from src.model.expert import VerticalDNN, initialize_expert
 from src.model.gate_network import SparseVerticalGate, VerticalGate
 from src.model.sparseMoE import SparseMoE
 
@@ -17,9 +17,7 @@ class VerticalSAMS(nn.Module):
         super().__init__()
         self.args = args
         
-        col_cardinality_sum = args.nfield + args.nfeat + 1
-        self.gate_input_size = args.nfield * args.sql_nemb
-        # self.gate_network = VerticalGate(self.gate_input_size, args.K, args.hid_layer_len)
+        self.gate_input_size = args.nfield * args.data_nemb
         self.gate_network = SparseVerticalGate(self.gate_input_size, args.K, args.hid_layer_len, args.dropout)
         self.input_size = args.nfield * args.data_nemb
         self.hidden_size = args.hid_layer_len
@@ -28,21 +26,17 @@ class VerticalSAMS(nn.Module):
         self.select_experts = args.C
         
         assert args.C <= args.K
-        expert = VerticalDNN(self.input_size, self.output_size, self.hidden_size, dropout=args.dropout)
+        expert = initialize_expert(args)
+        
         self.backbone = SparseMoE( 
                                 expert = expert, 
-                                # input_size = self.input_size,
-                                # output_size = self.output_size,
-                                # hidden_size= self.hidden_size,
                                 num_experts = self.num_experts,
                                 select_experts = self.select_experts,
                                 noisy_gating = args.noise_gating,
                                 )
         
-        self.sql_embedding = nn.Embedding(col_cardinality_sum, args.sql_nemb)
         self.input_embedding = nn.Embedding(args.nfeat, args.data_nemb)
 
-        nn.init.xavier_uniform_(self.sql_embedding.weight)
         nn.init.xavier_uniform_(self.input_embedding.weight)
 
     
@@ -65,14 +59,20 @@ class VerticalSAMS(nn.Module):
         y:      [B]
         loss:   [1]
         """
-        
+        if self.args.expert == "afn":
+            self.embedding_clip()
+            
         x_emb = self.input_embedding(x)             # [B, nfield, data_nemb]
-        sql_emb = self.sql_embedding(sql)           # [B, nfield, sql_nemb]
         B = x.shape[0]
         
-        x_emb = x_emb.view(B, -1)                   # [B, input_size]
-        sql_emb = sql_emb.view(B, -1)               # [B, gate_input_size]
+        x_emb_ = x_emb.view(B, -1)                   # [B, input_size]
 
-        gate_scores = self.gate_network(sql_emb)    # [B, num_experts]
+        gate_scores = self.gate_network(x_emb_)    # [B, num_experts]
         y, loss = self.backbone(x_emb, gate_scores) 
-        return y.squeeze(-1), loss 
+        return y.squeeze(-1), loss
+    
+    def embedding_clip(self):
+        "Keep AFN expert embeddings positive"
+        with torch.no_grad():
+            self.input_embedding.weight.abs_()
+            self.input_embedding.weight.clamp_(min=1e-4)

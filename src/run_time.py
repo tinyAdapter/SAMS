@@ -59,6 +59,7 @@ class Wrapper(object):
         for p in params:
             p.register_hook(lambda grad: torch.clamp(grad, -1., 1.))
 
+        torch.nn.utils.clip_grad_norm_(params, 1.0)
         # records running info
         info_dic = {}
         
@@ -67,6 +68,7 @@ class Wrapper(object):
         best_epoch = 0
         
 
+        alpha_list = []
             
         # train for epoches.
         for epoch in range(self.args.epoch):
@@ -91,6 +93,7 @@ class Wrapper(object):
 
             if self.args.net == "sparsemax_vertical_sams":
                 print(f"sparsemax alpha update", self.net.sparsemax.alpha)
+                alpha_list.append(self.net.sparsemax.alpha.item())
             # set to empty for the next epoch
             train_loader.dataset.reset_sql_his()
 
@@ -164,6 +167,7 @@ class Wrapper(object):
             )
 
         print(msg)
+        print(alpha_list)
         self.writer.add_text("Performance", msg)
         
         with open(os.path.join(dir_path, 'exp_info.json'), 'w', encoding='utf-8') as f:
@@ -213,10 +217,13 @@ class Wrapper(object):
                 aux_loss = 0
                 
                 if isinstance(y, tuple):
-                    y, aux_loss = y
+                    y, (aux_loss, spa_loss) = y
+                    a, b = self.args.beta * aux_loss, self.args.gamma * spa_loss
+                    # print(f"{a}, {b}")
                 
-                loss = opt_metric(y, target) + self.args.beta * aux_loss
-                
+                loss = opt_metric(y, target) 
+                # print(f"loss: {loss}")
+                loss += self.args.beta * aux_loss - self.args.gamma * spa_loss
                 optimizer.zero_grad()
 
                 # one step to update both hypernet and moenet
@@ -227,6 +234,7 @@ class Wrapper(object):
                 #     print(f"alpha ", self.net.sparsemax.alpha)
                 
                 # logging
+                # print(y)
                 auc = utils.roc_auc_compute_fn(y, target)
                 pr = utils.pr_auc_compute_fn(y, target)
                 
@@ -256,7 +264,7 @@ class Wrapper(object):
                     
                     aux_loss = 0
                     if isinstance(y, tuple):
-                        y, aux_loss = y
+                        y, (aux_loss, spa_loss) = y
                     loss = opt_metric(y, target) +  self.args.beta * aux_loss
 
                 # logging
@@ -300,7 +308,7 @@ class Wrapper(object):
                         aux_loss = 0
                         
                         if isinstance(y, tuple):
-                            y, aux_loss = y
+                            y, (aux_loss, spa_loss) = y
                         loss = opt_metric(y, target) + self.args.beta * aux_loss
                         
                         y_list.append(y)

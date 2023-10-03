@@ -149,6 +149,8 @@ class SparseMoE(nn.Module):
         x:tensor shape [batch_size, input_size], input_size -> nfield * emb_size
         gate_scores: tensor shape [batch_size, num_experts]
         """
+        B,F,E = x.size()
+        x = x.view(B, -1)
         gates, load = self.noisy_top_k_gating(x, gate_scores, self.training)
         # this gates go through topK and is sparseGateScore
         importance = gates.sum(0)
@@ -159,7 +161,12 @@ class SparseMoE(nn.Module):
         
         expert_inputs = dispatcher.dispatch(x)
         # gates = dispatcher.expert_to_gates()
-        expert_output = [self.experts[i](expert_inputs[i]) for i in range(self.num_experts)]
+        
+        # for i in range(self.num_experts):
+        #     s = expert_inputs[i].shape
+        #     s2 = expert_inputs[i].view(-1,F,E).shape
+        #     print(f"Shape {s}, {s2}")
+        expert_output = [self.experts[i](expert_inputs[i].view(-1,F,E)) for i in range(self.num_experts)]
         y = dispatcher.combine(expert_output)
         return y, loss
     

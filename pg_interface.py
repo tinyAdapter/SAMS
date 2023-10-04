@@ -93,6 +93,7 @@ def model_inference_compute(params: dict, args: Namespace):
     global model, sliced_model, col_cardinalities
     from src.logger import logger
     mini_batch = json.loads(params["mini_batch"])
+    logger.info(f"Received parameters: {mini_batch}")
     begin = time.time()
     y = mini_batch(mini_batch, None)
     duration = time.time() - begin

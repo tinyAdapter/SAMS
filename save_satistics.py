@@ -27,7 +27,7 @@ train_loader = SQLAttacedLibsvmDataset(
     args.max_filter_col)
 
 
-wwrite_json(
+write_json(
     f"{args.dataset}_col_cardinalities",
     train_loader.col_cardinalities)
 

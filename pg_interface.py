@@ -6,7 +6,7 @@ import traceback
 import orjson
 from argparse import Namespace
 from shared_config import parse_config_arguments
-from profile_model import load_model
+
 import random
 import torch
 from tqdm import tqdm
@@ -59,32 +59,40 @@ col_cardinalities = None
 def model_inference_load_model(params: dict, args: Namespace):
     global model, sliced_model, col_cardinalities
     from src.logger import logger
+    try:
+        from src.data_loader import sql_attached_dataloader
+        from profile_model import load_model
 
-    logger.info(f"Received parameters: {params}")
+        logger.info(f"Received parameters: {params}")
 
-    # read saved col_cardinatlites file
-    if col_cardinalities is None:
-        col_cardinalities = read_json(params["col_cardinalities_file"])
+        # read saved col_cardinatlites file
+        if col_cardinalities is None:
+            col_cardinalities = read_json(params["col_cardinalities_file"])
 
-    # # read the model path,
-    # model_path = params["model_path"]
-    # # get the where condition
-    # where_cond = params["where_cond"]
-    # selected_cols = where_cond[0]
-    # selected_values = where_cond[1]
-    #
-    # # generate default sql and selected sql
-    # target_sql = [col[-1] for col in col_cardinalities]
-    # for col in selected_cols:
-    #     target_sql[col] = selected_values[col].item()
-    #
-    # if model is None:
-    #     logger.info("Load model .....!")
-    #     model, config = load_model(model_path)
-    #     sliced_model = model.tailor_by_sql(torch.tensor(target_sql))
-    #     sliced_model.eval()
-    # else:
-    #     logger.info("Skip Load model")
+        # # read the model path,
+        # model_path = params["model_path"]
+        # # get the where condition
+        # where_cond = params["where_cond"]
+        # selected_cols = where_cond[0]
+        # selected_values = where_cond[1]
+        #
+        # # generate default sql and selected sql
+        # target_sql = [col[-1] for col in col_cardinalities]
+        # for col in selected_cols:
+        #     target_sql[col] = selected_values[col].item()
+        #
+        # if model is None:
+        #     logger.info("Load model .....!")
+        #     model, config = load_model(model_path)
+        #     sliced_model = model.tailor_by_sql(torch.tensor(target_sql))
+        #     sliced_model.eval()
+        # else:
+        #     logger.info("Skip Load model")
+    except:
+        logger.info(orjson.dumps(
+            {"Errored": traceback.format_exc()}).decode('utf-8'))
+        return orjson.dumps(
+            {"Errored": traceback.format_exc()}).decode('utf-8')
     return orjson.dumps({"ok": 1})
 
 
@@ -94,8 +102,8 @@ def model_inference_compute(params: dict, args: Namespace):
     from src.logger import logger
     mini_batch = json.loads(params["mini_batch"])
     logger.info(f"Received parameters: {mini_batch}")
-    begin = time.time()
-    y = mini_batch(mini_batch, None)
-    duration = time.time() - begin
-    logger.info(f"time usage for compute {len(mini_batch)} rows is {duration}")
-    return orjson.dumps({"model_outputs": y}).decode('utf-8')
+    # begin = time.time()
+    # y = mini_batch(mini_batch, None)
+    # duration = time.time() - begin
+    # logger.info(f"time usage for compute {len(mini_batch)} rows is {duration}")
+    return orjson.dumps({"model_outputs": 1}).decode('utf-8')

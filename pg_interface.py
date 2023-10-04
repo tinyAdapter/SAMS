@@ -60,29 +60,31 @@ def model_inference_load_model(params: dict, args: Namespace):
     global model, sliced_model, col_cardinalities
     from src.logger import logger
 
+    logger.info(f"Received parameters: {params}")
+
     # read saved col_cardinatlites file
     if col_cardinalities is None:
         col_cardinalities = read_json(params["col_cardinalities_file"])
 
-    # read the model path,
-    model_path = params["model_path"]
-    # get the where condition
-    where_cond = params["where_cond"]
-    selected_cols = where_cond[0]
-    selected_values = where_cond[1]
-
-    # generate default sql and selected sql
-    target_sql = [col[-1] for col in col_cardinalities]
-    for col in selected_cols:
-        target_sql[col] = selected_values[col].item()
-
-    if model is None:
-        logger.info("Load model .....!")
-        model, config = load_model(model_path)
-        sliced_model = model.tailor_by_sql(torch.tensor(target_sql))
-        sliced_model.eval()
-    else:
-        logger.info("Skip Load model")
+    # # read the model path,
+    # model_path = params["model_path"]
+    # # get the where condition
+    # where_cond = params["where_cond"]
+    # selected_cols = where_cond[0]
+    # selected_values = where_cond[1]
+    #
+    # # generate default sql and selected sql
+    # target_sql = [col[-1] for col in col_cardinalities]
+    # for col in selected_cols:
+    #     target_sql[col] = selected_values[col].item()
+    #
+    # if model is None:
+    #     logger.info("Load model .....!")
+    #     model, config = load_model(model_path)
+    #     sliced_model = model.tailor_by_sql(torch.tensor(target_sql))
+    #     sliced_model.eval()
+    # else:
+    #     logger.info("Skip Load model")
     return orjson.dumps({"ok": 1})
 
 

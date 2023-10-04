@@ -5,7 +5,7 @@ import json
 import traceback
 import orjson
 from argparse import Namespace
-from shared_config import parse_config_arguments
+from model_selection.shared_config import parse_config_arguments
 
 import random
 import torch
@@ -60,10 +60,10 @@ def model_inference_load_model(params: dict, args: Namespace):
     global model, sliced_model, col_cardinalities
     from src.logger import logger
     try:
+        logger.info(f"Received parameters: {params}")
+
         from src.data_loader import sql_attached_dataloader
         from profile_model import load_model
-
-        logger.info(f"Received parameters: {params}")
 
         # read saved col_cardinatlites file
         if col_cardinalities is None:

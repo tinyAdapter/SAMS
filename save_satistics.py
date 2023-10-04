@@ -16,11 +16,6 @@ def write_json(file_name, data):
 args = parse_arguments()
 seed_everything(args.seed)
 
-args.data_dir = "../exp_data/"
-args.dataset = "frappe"
-args.nfeat = 5500
-args.nfield = 10
-
 
 data_dir = os.path.join(args.data_dir, "data/structure_data/", args.dataset)
 train_file = glob.glob("%s/tr*libsvm" % data_dir)[0]
@@ -38,7 +33,7 @@ wwrite_json(
 
 """
 export PYTHONPATH=$PYTHONPATH:./internal/ml/model_slicing
-python ./internal/ml/model_slicing/save_satistics.py --dataset frappe --data_dir ../exp_data/ --nfeat 5500 --nfield 10
+python ./internal/ml/model_slicing/save_satistics.py --dataset frappe --data_dir ../exp_data/ --nfeat 5500 --nfield 10 --max_filter_col 10 --train_dir ./
 python ./internal/ml/model_slicing/save_satistics.py --dataset criteo --data_dir ../exp_data/ --nfeat 2100000 --nfield 39
 """
 

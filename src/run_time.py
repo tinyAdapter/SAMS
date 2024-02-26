@@ -40,7 +40,7 @@ class Wrapper(object):
         :return:
         """
 
-        start_time, best_valid_auc = time.time(), 0.
+        start_time, best_valid_auc, best_test_auc = time.time(), 0.,0.
 
         # define the loss function, for two class classification
         opt_metric = nn.BCEWithLogitsLoss(reduction='mean').to(self.args.device)
@@ -117,7 +117,6 @@ class Wrapper(object):
                 "train_val_total_time": time.time() - start_time
                 }
             
-            
             self.writer.add_scalar('Loss/Training_Epoch_Ave_Loss', train_loss, epoch)
             self.writer.add_scalar('Loss/Valid_Epoch_Ave_Loss', valid_loss, epoch)
             self.writer.add_scalar('Loss/Test_Epoch_Ave_Loss', test_loss, epoch)
@@ -140,14 +139,14 @@ class Wrapper(object):
             if valid_auc >= best_valid_auc:
                 best_epoch = epoch
                 best_valid_auc = valid_auc
-                print(f'best valid auc: valid {valid_auc:.4f}, test {test_micro_auc:.4f}')
+                best_test_auc = test_micro_auc_
+                print(f'best valid auc: valid {valid_auc:.4f}, test {test_micro_auc_:.4f}')
                 # update best model
                 if self.save_best_model:
-
                     best_net = deepcopy(self.net)
                     
             else:
-                print(f'valid {valid_auc:.4f}, test {test_micro_auc:.4f}')
+                print(f'valid {valid_auc:.4f}, test {test_micro_auc_:.4f} Best epoch {best_epoch}, Test AUC {best_test_auc:.4f}')
 
         if self.save_best_model:
             dir_path = os.path.dirname(self.writer.log_dir)
@@ -215,14 +214,13 @@ class Wrapper(object):
                 # y = self.net((x_id, x_value), sql)
                 y = self.net(x_id, sql)
                 aux_loss = 0
-                
+                spa_loss = 0
                 if isinstance(y, tuple):
                     y, (aux_loss, spa_loss) = y
                     a, b = self.args.beta * aux_loss, self.args.gamma * spa_loss
-                    # print(f"{a}, {b}")
+                    # print(f"aux_loss and sparse_loss: {a}, {b}")
                 
                 loss = opt_metric(y, target) 
-                # print(f"loss: {loss}")
                 loss += self.args.beta * aux_loss - self.args.gamma * spa_loss
                 optimizer.zero_grad()
 
@@ -354,28 +352,6 @@ class Wrapper(object):
                     f'AUC {auc_avg.avg:8.4f} Loss {loss_avg.avg:8.4f}')
         
         return auc_avg.avg, pr_avg.avg, loss_avg.avg
-
-    
-    # def inference(self, sql_batch, data_batch):
-        
-    #     self.net.eval()
-        
-    #     sql_batch_tensor = torch.tensor(sql_batch).to(self.args.device)
-    #     data_batch['id'] = data_batch['id'].to(self.args.device)
-    #     data_batch['value'] = data_batch['value'].to(self.args.device)
-
-    #     with torch.no_grad():
-    #         arch_advisor = self.hyper_net(sql_batch_tensor)
-    #         assert arch_advisor.size(1) == self.args.moe_num_layers * self.args.K, \
-    #             f"{arch_advisor.size()} is not {self.args.batch_size, self.args.moe_num_layers * self.args.K}"
-
-    #         # reshape it to (B, L, K), the last batch may less than self.args.batch_size -> arch_advisor.size(0)
-    #         arch_advisor = arch_advisor.reshape(arch_advisor.size(0), self.args.moe_num_layers, self.args.K)
-    #         arch_advisor = self.sparsemax(arch_advisor)
-    #         # calculate y and loss
-    #         y = self.moe_net.forward(data_batch, arch_advisor)
-
-    #         return y
 
 
     def close(self):

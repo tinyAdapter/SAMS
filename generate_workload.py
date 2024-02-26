@@ -28,17 +28,32 @@ Generate Workload
 frappe: 
 python generate_workload.py --output_dir="/hdd1/sams/data/frappe/workload"
 
-uci_diabetes: 
-python generate_workload.py --output_dir="/hdd1/sams/data/uci_diabetes/workload" --dataset=uci_diabetes --nfield=43 --output_name='random'
-
 bank:   
-python generate_workload.py --output_dir="/hdd1/sams/data/bank/workload" --dataset=bank --nfield=16 --output_name='random'
+python generate_workload.py --output_dir="/hdd1/sams/data/bank/workload" --dataset=bank --nfield=16 
 
 adult:
-python generate_workload.py --output_dir="/hdd1/sams/data/adult/workload" --dataset=adult --nfield=13 --output_name='random'
+python generate_workload.py --output_dir="/hdd1/sams/data/adult/workload" --dataset=adult --nfield=13 
 
 cardiovascular disease:
-python generate_workload.py --output_dir="/hdd1/sams/data/cvd/workload" --dataset=cvd --nfield=11 --output_name='random'
+python generate_workload.py --output_dir="/hdd1/sams/data/cvd/workload" --dataset=cvd --nfield=11 
+
+diabetes:
+python generate_workload.py  --output_dir="/hdd1/sams/data/diabetes/workload" --dataset=diabetes --nfield=48 --n 40
+python generate_workload.py  --output_dir="/hdd1/sams/data/diabetes/workload" --dataset=diabetes --nfield=48 --n 100 --output_name random_100
+
+
+credit:
+python generate_workload.py  --output_dir="/hdd1/sams/data/credit/workload" --dataset=credit --nfield=23 --n 40
+python generate_workload.py  --output_dir="/hdd1/sams/data/credit/workload" --dataset=credit --nfield=23 --n 100 --output_name random_100
+
+hcdr: Home Credit Default Risk
+python generate_workload.py  --output_dir="/hdd1/sams/data/hcdr/workload" --dataset=hcdr --nfield=69 --n 40
+python generate_workload.py  --output_dir="/hdd1/sams/data/hcdr/workload" --dataset=hcdr --nfield=69 --n 100 --output_name random_100
+
+census
+python generate_workload.py  --output_dir="/hdd1/sams/data/census/workload" --dataset=census --nfield=41 --n 40
+python generate_workload.py  --output_dir="/hdd1/sams/data/census/workload" --dataset=census --nfield=41 --n 100 --output_name random_100
+
 '''
 
 pwd = os.getcwd()
@@ -46,7 +61,7 @@ pwd = os.getcwd()
 
 
 parser = argparse.ArgumentParser(description='wordload_generation')
-# parser.add_argument('--output_dir', type=str, default='./workload')
+parser.add_argument('--output_dir', type=str, default='./workload')
 parser.add_argument('--output_name', type=str, default="random")
 
 parser.add_argument('--data_dir', type=str,
@@ -55,7 +70,7 @@ parser.add_argument('--dataset', type=str, default="frappe", help="name of datas
 parser.add_argument('--nfield', type=int, default=10, help="")
 parser.add_argument('--n', type=int, default=30,
                     help="number of sql in workload")
-parser.add_argument('--max_select_col', type=int, default=4,
+parser.add_argument('--max_select_col', type=int, default=3,
                     help="max selected column number for filter")
 
 

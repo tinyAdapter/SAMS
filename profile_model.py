@@ -12,6 +12,7 @@ from src.model.factory import initialize_model
 import matplotlib.pyplot as plt
 
 
+
 def load_model(tensorboard_path: str):
     """
     Args:
@@ -60,7 +61,12 @@ def fig(x,y,path):
 parser = argparse.ArgumentParser(description='predict FLOPS')
 parser.add_argument('path', type=str, 
                     help="directory to model file")
-device = 'cuda:2'
+parser.add_argument('--alpha', type=float,
+                    default=None,
+                    help="if set the value of alpha of sparsemax")
+parser.add_argument('--workload', type=str,
+                    default="random")
+device="cuda:0"
 if __name__ == '__main__':
     args = parser.parse_args()
     path = args.path
@@ -69,41 +75,47 @@ if __name__ == '__main__':
     print(config.workload)
     # config.
     # load data
+    
     train_loader, _, workload = sql_attached_dataloader(config)
     
+    print(config.K)
     net.eval()
    
     frequency = []
     expert_num_for_each_item = []
-    with torch.no_grad():
-        for i in range(len(workload)):
-            _, sql = workload[i]
-            sql = sql.unsqueeze(0) # [1, nfield]
-            
-            score = net.cal_gate_score(sql) # [1, n]
-            score = score.squeeze(0)
-            
-            
-            nonzero = score.numpy() != 0            
-    	    # L = expert nnum
-            frequency.append(nonzero)
-            expert_num_for_each_item.append(np.sum(nonzero))
-    
-    
-    frequency = np.array(frequency)
-    frequency = np.sum(frequency, axis=0) / len(workload)
-    frequency = frequency.tolist()
 
+    if config.net == "sparsemax_vertical_sams":
+        alpha = net.sparsemax.alpha
+        print(alpha)
+        if args.alpha is not None:
+            net.sparsemax.alpha = torch.nn.Parameter(torch.tensor(args.alpha, dtype=torch.float32), requires_grad=True)
+      
+        with torch.no_grad():
+            for i in range(len(workload)):
+                _, sql = workload[i]
+                sql = sql.unsqueeze(0) # [1, nfield]
+                
+                score = net.cal_gate_score(sql) # [1, n]
+                score = score.squeeze(0)
+                
+                
+                nonzero = score.numpy() != 0            
+                # L = expert nnum
+                frequency.append(nonzero)
+                expert_num_for_each_item.append(np.sum(nonzero))
     
+    
+        frequency = np.array(frequency)
+        frequency = np.sum(frequency, axis=0) / len(workload)
+        frequency = frequency.tolist()
 
-    print(config.K)
-    print(net.sparsemax.alpha)
-    print(frequency)
-    fig(range(len(frequency)), frequency, "./Expert.png")
-    fig(range(len(expert_num_for_each_item)), expert_num_for_each_item, "./Item.png")        
-    
-    ave_expert = sum(expert_num_for_each_item)/len(expert_num_for_each_item)    
-    print(ave_expert)
+
+        print(frequency)
+        fig(range(len(frequency)), frequency, "./Expert.png")
+        fig(range(len(expert_num_for_each_item)), expert_num_for_each_item, "./Item.png")        
+        
+        ave_expert = sum(expert_num_for_each_item)/len(expert_num_for_each_item)    
+        print(ave_expert)
     
     # calculate if sql is all padding, means no predicate.
     sql = train_loader.dataset.generate_default_sql()
@@ -113,14 +125,17 @@ if __name__ == '__main__':
     
 
     sql = sql.unsqueeze(0)
-    score = net.cal_gate_score(sql) # [1, n]
-    score = score.squeeze(0)
-    print(score)
+    
+    if config.net == "sparsemax_vertical_sams":
+        score = net.cal_gate_score(sql) # [1, n]
+        score = score.squeeze(0)
+        print(score)
     
     net = net.to(device)
     psql = sql.to(device)
     cnt = 0
     target_macro, y_macro, py_macro = [], [], []
+    res = []
     with torch.no_grad():
         for i in range(len(workload)):
             dataset, sql = workload[i]
@@ -142,9 +157,13 @@ if __name__ == '__main__':
                 sql_ = sql.expand(B, -1)
                 psql_ = psql.expand(B, -1)
                 
-                y, _ = net(x_id, sql_)
-                py, _ = net(x_id, psql_)
-                    
+                y = net(x_id, sql_)
+                py = net(x_id, psql_)
+                
+                if isinstance(y, tuple):
+                    y = y[0]
+                    py = py[0]
+                      
                 y_list.append(y)
                 py_list.append(py)
                 
@@ -183,7 +202,7 @@ if __name__ == '__main__':
 
                 # print(f"target shape{target.shape}, y_shape {y.shape}, pyshape {py.shape}")
                 print(f"Workload {i}, #tuple {tuple_size}: AUCROC {pauc:8.4f} : {auc:8.4f}") 
-                
+                res.append("{:.4f}".format(auc))
             except ValueError:
                 print("Skip this workload micro-evaluation")
                 pass
@@ -209,3 +228,5 @@ if __name__ == '__main__':
         f'Without SQL -> Micro-AUC-ROC {p_auc_avg_.avg:8.4f} \t Macro-AUC-ROC {p_macro_auc:8.4f} \n'
         f'With SQL    -> Micro-AUC-ROC {auc_avg_.avg:8.4f} \t Macro-AUC-ROC {macro_auc:8.4f} \n'
         )
+    
+    print(f"auc result list {res[:30]}")

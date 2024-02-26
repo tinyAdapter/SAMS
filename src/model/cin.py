@@ -12,7 +12,7 @@ class CIN(torch.nn.Module):
     Ref:    J Lian, et al. xDeepFM: Combining Explicit and
                 Implicit Feature Interactions for Recommender Systems, 2018.
     """
-    def __init__(self, nfield:int, nfeat:int, nemb:int, output_size:int ,hid_size:int):
+    def __init__(self, nfield:int, nfeat:int, nemb:int, output_size:int ,hid_size:int, dropout:float):
         """
         :param nfield: # columns
         :param nfeat: # feature of the dataset.
@@ -22,7 +22,7 @@ class CIN(torch.nn.Module):
         """
         super().__init__()
         self.embedding = Embedding(nfeat, nemb)
-        self.net = CompressedInteractionExpert(nfield, nemb, output_size, hid_size)
+        self.net = CompressedInteractionExpert(nfield, nemb, output_size, hid_size, dropout)
 
     def forward(self, x:Tuple[torch.Tensor], _):
         """

@@ -168,7 +168,7 @@ class SparseMoE(nn.Module):
         #     print(f"Shape {s}, {s2}")
         expert_output = [self.experts[i](expert_inputs[i].view(-1,F,E)) for i in range(self.num_experts)]
         y = dispatcher.combine(expert_output)
-        return y, loss
+        return y, (loss,0)
     
     def cv_squared(self, x):
         """The squared coefficient of variation of a sample.

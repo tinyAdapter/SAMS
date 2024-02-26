@@ -15,6 +15,7 @@ from src.model.factory import initialize_model
 from fvcore.nn import FlopCountAnalysis
 from fvcore.nn import parameter_count_table
 
+
 def load_model(tensorboard_path: str, device:str ="cuda"):
     """
     Args:
@@ -60,11 +61,17 @@ parser.add_argument('--print_net', '--b', action='store_true',
 parser.add_argument('--device', type=str, default="cuda",
                     help="gpu or cpu")
 
+parser.add_argument('--alpha', type=float,
+                    default=None,
+                    help="if set the value of alpha of sparsemax")
+
 if __name__ == '__main__':
     args = parser.parse_args()
     path = args.path
     flag = args.flag
-    device = args.device
+    device = torch.device(args.device)
+    print("CUDA_VISIBLE_DEVICES:", os.environ.get("CUDA_VISIBLE_DEVICES"))
+    print(device)
     print(path)
     net, config= load_model(path, args.device)
     net:SparseMax_VerticalSAMS = net
@@ -73,10 +80,10 @@ if __name__ == '__main__':
     print(config.workload)
     
     if config.net == "sparsemax_vertical_sams":
-        alpha = net.sparsemax.alpha
-        print(alpha)
-        # net.sparsemax.alpha = torch.nn.Parameter(torch.tensor(1.6, dtype=torch.float32), requires_grad=True)
-        
+        print(f"alpha -> {net.sparsemax.alpha:.4f}")
+        if args.alpha is not None:
+            net.sparsemax.alpha = torch.nn.Parameter(torch.tensor(args.alpha, dtype=torch.float32), requires_grad=True)
+      
     train_loader, _, workload = sql_attached_dataloader(config)
     # print(net)
     net.eval()
@@ -95,8 +102,12 @@ if __name__ == '__main__':
             
             sql = sql.unsqueeze(0) # [1, nfield]
             sql = sql.to(device)
-            
+            num_used = 1
             if config.net == "sparsemax_vertical_sams":
+                gate_score = net.cal_gate_score(sql)
+                non_zero_indices = torch.nonzero(gate_score)
+                # Count the number of non-zero elements
+                num_used = len(non_zero_indices)
                 subnet:SliceModel = net.tailor_by_sql(sql)
                 subnet.to(device)
             else:
@@ -135,12 +146,14 @@ if __name__ == '__main__':
             y = torch.cat(y_list, dim = 0)
             
             workload_ops += ops
-            ops = clever_format([ops], "%.3f")
+            n = len(data_laoder.dataset)
+            ops_per_tuple = ops*1.0/n
+            ops_per_tuple = clever_format([ops_per_tuple], "%.3f")
             try:
                 cnt += 1          
                 auc = utils.roc_auc_compute_fn(y, target)
                 auc_avg_.update(auc, 1)
-                print(f"Workload {i}, #tuple {tuple_size}: AUCROC {auc:8.4f}, FLOPs {ops}")
+                print(f"Workload {i}, #tuple {tuple_size}: AUCROC {auc:8.4f}, FLOPs {ops_per_tuple}, used Experts {num_used}")
             except ValueError:
                 print("Skip this workload micro-evaluation")
                 pass

@@ -15,6 +15,53 @@ class Expert(nn.Module):
         self.hidden_size = hidden_size
 
 
+
+# class MLP(nn.Module):
+#     def __init__(self, input_size, output_size, hidden_size, dropout):
+#         super().__init__()
+#         self.fc1 = nn.Linear(input_size, hidden_size)
+#         self.bn1 = nn.BatchNorm1d(hidden_size)
+#         self.r1 = nn.ReLU()
+#         self.d1 = nn.Dropout(dropout)
+        
+#         self.fc2 = nn.Linear(hidden_size, hidden_size)
+#         self.bn2 = nn.BatchNorm1d(hidden_size)
+#         self.r2 = nn.ReLU()
+#         self.d2 = nn.Dropout(dropout)
+        
+#         self.fc3 = nn.Linear(hidden_size, output_size)
+#         # self.r3 = nn.Sigmoid()
+
+#         nn.init.xavier_uniform_(self.fc1.weight)
+#         # nn.init.xavier_uniform_(self.fc1.bias)
+#         nn.init.xavier_uniform_(self.fc2.weight)
+#         # nn.init.xavier_uniform_(self.fc2.bias)
+#         nn.init.xavier_uniform_(self.fc3.weight)
+#         # nn.init.xavier_uniform_(self.fc3.bias)
+        
+#     def forward(self, x):
+#         """
+#         Should consider the B = 1, in SparseMoe it will dispatch input_batch
+#         Args:
+#         x : [batch_size, input_size]
+#         Return:
+#         x : [batch_size, output_size]
+#         """
+#         B, _ = x.size()
+#         # if B == 1:
+#         #     x = self.d1(self.r1(self.fc1(x)))
+#         #     x = self.d2(self.r2(self.fc2(x)))
+#         #     x = self.fc3(x)
+#         # else:
+#         #     x = self.d1(self.r1(self.bn1(self.fc1(x))))
+#         #     x = self.d2(self.r2(self.bn2(self.fc2(x))))
+#         #     x = self.fc3(x)
+#         x = self.d1(self.r1(self.bn1(self.fc1(x))))
+#         x = self.d2(self.r2(self.bn2(self.fc2(x))))
+#         x = self.fc3(x)
+#         return x
+
+
 class MLP(nn.Module):
     def __init__(self, input_size, output_size, hidden_size, dropout):
         super().__init__()
@@ -55,8 +102,10 @@ class MLP(nn.Module):
             x = self.d1(self.r1(self.bn1(self.fc1(x))))
             x = self.d2(self.r2(self.bn2(self.fc2(x))))
             x = self.fc3(x)
+        # x = self.d1(self.r1(self.bn1(self.fc1(x))))
+        # x = self.d2(self.r2(self.bn2(self.fc2(x))))
+        # x = self.fc3(x)
         return x
- 
 
 class VerticalDNN(Expert):
     
@@ -84,7 +133,7 @@ class VerticalDNN(Expert):
 
 
 class CompressedInteractionExpert(Expert):
-    def __init__(self, nfield, nemb, output_size, hidden_size):
+    def __init__(self, nfield, nemb, output_size, hidden_size, dropout):
         super().__init__(nfield, nemb, output_size, hidden_size)
         """_summary_
         hidden_size: number of filter
@@ -92,12 +141,11 @@ class CompressedInteractionExpert(Expert):
         """
         assert output_size == 1
         self.conv1 = nn.Conv1d(nfield * nfield, hidden_size, kernel_size=1, bias =False)
-        
         self.r1 = nn.ReLU()
-        
+        self.d1 = nn.Dropout(dropout)
         self.conv2 = nn.Conv1d(nfield * hidden_size, hidden_size, kernel_size=1, bias=False)
         self.r2 = nn.ReLU()
-        
+        self.d2 = nn.Dropout(dropout)
         self.affine = nn.Linear(hidden_size * 2, output_size, bias=False)
     
     
@@ -115,12 +163,12 @@ class CompressedInteractionExpert(Expert):
         x0, xk = x.unsqueeze(2), x         # x0: [B,F,1,E] | xk: [B,F,E]
         h = x0 * xk.unsqueeze(1)           # [B,F,1,E] * [B,1,F,E] -> h [B,F,F,E]
         B,F,H,E = h.size()
-        xk = self.r1(self.conv1(h.view(B, F*H, E))) # B * H * E
+        xk = self.d1(self.r1(self.conv1(h.view(B, F*H, E)))) # B * H * E
         xlist.append(torch.sum(xk, dim = -1))
         
         h = x0 * xk.unsqueeze(1)           # [B,F,1,E] * [B,1,H,E] -> h [B,F,H,E]
         B,F,H,E = h.size()
-        xk = self.r2(self.conv2(h.view(B, F*H, E))) # [B, H, E]
+        xk = self.d2(self.r2(self.conv2(h.view(B, F*H, E)))) # [B, H, E]
         xlist.append(torch.sum(xk, dim = -1))
         
         x = torch.cat(xlist, dim = 1)   # [B, H*2]
@@ -293,7 +341,7 @@ def initialize_expert(args:argparse.Namespace):
     
     if args.expert == "cin":
         return CompressedInteractionExpert(args.nfield, args.data_nemb, args.output_size,
-                                    args.nhid)
+                                    args.nhid, args.dropout)
     
     if args.expert == "afn":
         return AFNExpert(args.nfield, args.data_nemb, args.output_size,

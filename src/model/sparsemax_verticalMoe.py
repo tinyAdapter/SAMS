@@ -138,7 +138,6 @@ class SparseMax_VerticalSAMS(nn.Module):
         return gate_score
      
 
-    
     def tailor_by_sql(self, sql:torch.Tensor):
         """
         sql: [1, F]

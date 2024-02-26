@@ -240,7 +240,7 @@ class SparsemaxBisect(nn.Module):
 
 
 class EntmaxBisect(nn.Module):
-    def __init__(self, alpha=1.5, dim=-1, n_iter=50, requires_grad = True):
+    def __init__(self, alpha=1.5, dim=-1, n_iter=10, requires_grad = True):
         """alpha-entmax: normalizing sparse map (a la softmax) via bisection.
 
         Solves the optimization problem:
@@ -273,9 +273,14 @@ class EntmaxBisect(nn.Module):
         self.n_iter = n_iter
         # self.alpha = alpha
         self.alpha = nn.Parameter(torch.tensor(alpha, dtype=torch.float32), requires_grad=requires_grad)
+        # self.alpha = nn.Parameter(torch.Tensor([alpha]).float(), requires_grad=requires_grad)
+        
 
 
     def forward(self, X):
         return entmax_bisect(
             X, alpha=self.alpha, dim=self.dim, n_iter=self.n_iter
         )
+
+
+

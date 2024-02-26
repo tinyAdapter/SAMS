@@ -111,7 +111,7 @@ def data_set_config(parser):
                         help='path of data and result parent folder')
     # define search space,
     parser.add_argument('--dataset', type=str, default='uci_diabetes',
-                        help='cifar10, cifar100, ImageNet16-120, '
+                        help='credit, diabetes'
                              'frappe, '
                              'criteo, '
                              'uci_diabetes')
@@ -144,6 +144,7 @@ def parse_arguments():
 
 if __name__ == '__main__':
     args = parse_arguments()
+    
     # set the log name
     gmt = time.gmtime()
     ts = calendar.timegm(gmt)
@@ -151,6 +152,7 @@ if __name__ == '__main__':
     import src.data_loader as data
     from src.tensorlog import setup_tensorboard_writer
     from src.run_time import Wrapper
+    
     seed_everything(args.seed)
     # init data loader
     train_loader, val_loader, test_loader = data.sql_attached_dataloader(args=args)

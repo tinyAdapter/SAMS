@@ -31,7 +31,7 @@ def initialize_model(args: argparse.Namespace):
     
     if args.net == "cin":
         return CIN(args.nfield, args.nfeat, args.data_nemb, args.output_size, 
-                   args.nhid)
+                   args.nhid, args.dropout)
     
     
     if args.net == "armnet":

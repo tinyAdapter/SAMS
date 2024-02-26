@@ -91,7 +91,7 @@
     --moe_hid_layer_len 32 --data_nemb 10  \
     --hid_layer_len 32 --sql_nemb 5\
     --dropout 0.1   \
-    --K 256 --alpha 2.3 --max_filter_col 8\
+    --K 256 --alpha 2.6 --max_filter_col 8\
     --epoch 50 --batch_size 1024 --lr 0.002 \
     --seed 3047 --beta 0.005\
     --train_dir SAMS_K256  --report_freq 5

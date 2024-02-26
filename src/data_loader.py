@@ -2,6 +2,7 @@ import glob
 from tqdm import tqdm
 import torch
 import random
+import numpy as np
 from torch.utils.data import Dataset, DataLoader,Subset
 import os
 
@@ -189,9 +190,14 @@ class Workload(object):
     
     
 
+def seed_worker(worker_id):
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
 
 def sql_attached_dataloader(args):
-    
+    # g = torch.Generator()
+    # g.manual_seed(args.seed)
     data_dir = os.path.join(args.data_dir, args.dataset)
     train_file = glob.glob("%s/tr*libsvm" % data_dir)[0]
     val_file = glob.glob("%s/va*libsvm" % data_dir)[0]
@@ -199,24 +205,22 @@ def sql_attached_dataloader(args):
 
     train_loader = DataLoader(SQLAttacedLibsvmDataset(train_file, args.nfield, args.max_filter_col),
                               batch_size=args.batch_size, shuffle=True,
-                              pin_memory=True)
+                              pin_memory=True, worker_init_fn=seed_worker)
     
     val_loader = DataLoader(SQLAttacedLibsvmDataset(val_file, args.nfield, args.max_filter_col),
                               batch_size=args.batch_size, shuffle=False,
-                              pin_memory=True)
+                              pin_memory=True, worker_init_fn=seed_worker)
     
     # val_dataset = SQLAwareDataset(val_file, args.nfield)
     # val_workload = Workload(val_dataset, os.path.join(data_dir, args.workload))
     
     test_dataset = SQLAwareDataset(test_file, args.nfield)
-    # print(data_dir)
-    # print(args.workload)
+
     workload_dir = os.path.join(data_dir, "workload", args.workload)
 
     test_workload = Workload(test_dataset, workload_dir)
     
     return train_loader, val_loader, test_workload
-
 
 ''' ---------------------  Big Dataset Loading ---------------------'''
 
